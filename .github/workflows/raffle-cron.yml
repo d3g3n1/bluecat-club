@@ -1,0 +1,25 @@
+
+name: BlueCat Raffle Cron
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - run: npm ci || npm i
+      - run: npm run open-daily
+        env:
+          ADMIN_PRIVATE_KEY: ${{ secrets.ADMIN_PRIVATE_KEY }}
+          RPC_URL: https://mainnet.base.org
+          RAFFLE_ADDRESS: 0x9D8de4162f4928d88027AFB67F51178D4Eb6C3Bc
+      - run: npm run settle-now
+        env:
+          ADMIN_PRIVATE_KEY: ${{ secrets.ADMIN_PRIVATE_KEY }}
+          RPC_URL: https://mainnet.base.org
+          RAFFLE_ADDRESS: 0x9D8de4162f4928d88027AFB67F51178D4Eb6C3Bc

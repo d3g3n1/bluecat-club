@@ -1,0 +1,26 @@
+{
+  "name": "bluecat-club",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "open-daily": "node -r dotenv/config automation/open-daily.mjs dotenv_config_path=.env.admin",
+    "settle-now": "node -r dotenv/config automation/settle-ready.mjs dotenv_config_path=.env.admin"
+  },
+  "dependencies": {
+    "date-fns-tz": "^2.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "viem": "^2.9.18"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.56",
+    "@types/react-dom": "^18.2.19",
+    "@vitejs/plugin-react": "^4.3.1",
+    "typescript": "^5.6.2",
+    "vite": "^7.1.5"
+  }
+}
