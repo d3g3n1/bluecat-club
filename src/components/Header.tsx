@@ -144,21 +144,21 @@ function WalletPicker({
 
         <div style={{ display: 'grid', gap: 10 }}>
           <Row
-            icon="/wallets/metamask.svg"
+            icon="/public/metamask.svg"
             label="MetaMask"
             onClick={() => choose('metamask')}
             disabled={!found.metamask}
             note={!found.metamask ? 'not found' : undefined}
           />
           <Row
-            icon="/wallets/phantom.svg"
+            icon="/public/phantom.svg"
             label="Phantom (EVM)"
             onClick={() => choose('phantom')}
             disabled={!found.phantom}
             note={!found.phantom ? 'not found' : undefined}
           />
           <Row
-            icon="/wallets/coinbase.svg"
+            icon="/public/coinbase.svg"
             label="Coinbase Wallet"
             onClick={() => choose('coinbase')}
             disabled={!found.coinbase}
