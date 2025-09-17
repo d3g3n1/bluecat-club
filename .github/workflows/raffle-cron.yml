@@ -6,6 +6,15 @@ on:
     - cron: "*/15 * * * *"
   workflow_dispatch: {}
 
+# Avoid two runs overlapping if one takes longer than expected
+concurrency:
+  group: raffle-ops
+  cancel-in-progress: false
+
+# Least-privilege permissions for this workflow
+permissions:
+  contents: read
+
 jobs:
   run-ops:
     runs-on: ubuntu-latest
@@ -22,7 +31,8 @@ jobs:
           cache: 'npm'
 
       - name: Install deps
-        run: npm ci
+        # If there's ever a lock mismatch, fall back to npm i
+        run: npm ci || npm i
 
       - name: Close/Finalize/Open rounds
         env:
