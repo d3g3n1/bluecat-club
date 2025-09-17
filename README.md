@@ -15,7 +15,7 @@ A minimal, fast dApp built with **Vite + React + viem**.
 |---|---|
 | **Raffle** | `0xA2974Be72E0EbD66a2368e8734b64941290CC1Ad` |
 | **$TOSHI token** | `0xAC1Bd2486aAf3B5C0fc3Fd868558b082a531B2B4` |
-| **$BCAT token** | *(TBD)* |
+| **$BCAT token** | `0x681e0a28637e9f9a70fb9fc6424489d8c8cb8453` |
 | **Staking (BCAT)** | *Coming soon* |
 
 > **Ticket price:** 10,000 TOSHI (18 decimals).  
