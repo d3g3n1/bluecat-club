@@ -79,6 +79,26 @@ async function main() {
   });
   id = BigInt(id);
 
+  // ---------- BOOTSTRAP: open Round #1 if none exists ----------
+  if (id === 0n) {
+    const nextId   = 1n;
+    const secret   = secretForRound(MASTER_SECRET, nextId);
+    const commit   = commitFromSecret(secret);
+    const nextClose= nextCloseAtInET();
+
+    console.log('➡️  bootstrap openRound', nextId.toString(), 'closeAt=', nextClose, 'commit=', commit);
+    const tx = await walletClient.writeContract({
+      address: RAFFLE_ADDRESS,
+      abi: RAFFLE_ABI,
+      functionName: 'openRound',
+      args: [BigInt(nextClose), commit],
+    });
+    console.log('   tx:', tx);
+    console.log('✅  Bootstrap complete — next runs will handle close/finalize/open.');
+    return;
+  }
+  // -------------------------------------------------------------
+
   const now = Math.floor(Date.now()/1000);
   console.log(`Round #${id} | closeAt=${closeAt} | closed=${closed} | drawn=${drawn}`);
 
@@ -91,7 +111,7 @@ async function main() {
     console.log('   tx:', tx);
   }
 
-  // Refresh state
+  // Refresh state after potential close
   ;([id, openAt, closeAt, pot, closed, drawn] = await publicClient.readContract({
     address: RAFFLE_ADDRESS, abi: RAFFLE_ABI, functionName: 'currentRound'
   }));
