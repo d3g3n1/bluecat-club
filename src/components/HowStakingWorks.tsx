@@ -12,7 +12,8 @@ const stepBox: React.CSSProperties = {
   border: '1px solid var(--border)',
   background: 'rgba(255,255,255,.05)',
   boxShadow: 'var(--edge-glow)',
-  transition: 'transform .16s cubic-bezier(.22,1,.36,1), box-shadow .16s cubic-bezier(.22,1,.36,1)'
+  transition: 'transform .16s cubic-bezier(.22,1,.36,1), box-shadow .16s cubic-bezier(.22,1,.36,1)',
+  minWidth: 0,
 };
 
 function Step({ n, title, body, icon }:{
@@ -39,14 +40,17 @@ export default function HowStakingWorks(){
     <div className='card neon-border' style={{padding:18}}>
       <div className='row' style={{justifyContent:'space-between', alignItems:'center', marginBottom:10}}>
         <div className='title-xl' style={{fontSize:20, display:'flex', alignItems:'center', gap:10}}>
-          {/* icon switched to mascot2.svg */}
-          <img src="/mascot2.svg" alt="BlueCat" style={{width:22,height:22,borderRadius:6}}/>
+          {/* small section icon */}
+          <img className="section-icon" src="/mascot2.svg" alt="BlueCat" style={{width:22,height:22,borderRadius:6}}/>
           How $BCAT Staking Works
         </div>
       </div>
 
-      {/* Steps */}
-      <div style={{display:'grid', gridTemplateColumns:'repeat(4, minmax(220px, 1fr))', gap:12}}>
+      {/* Steps (desktop: 4 cols; mobile: horizontal snap) */}
+      <div
+        className="grid snapgrid"
+        style={{ display:'grid', gridTemplateColumns:'repeat(4, minmax(220px, 1fr))', gap:12 }}
+      >
         <Step n={1} title='Stake $BCAT (Coming Soon)'
           body='Lock BCAT to share in platform fees (paid in $TOSHI) and unlock future club perks/governance.'
           icon='🔒' />
@@ -66,6 +70,24 @@ export default function HowStakingWorks(){
         <Chip>60% of fee to stakers (when live)</Chip>
         <Chip>40% of fee to treasury</Chip>
       </div>
+
+      {/* Scoped mobile styles to enable scroll-snap + smaller icon */}
+      <style>{`
+        @media (max-width: 980px){
+          .snapgrid{
+            grid-template-columns: none !important;
+            grid-auto-flow: column;
+            grid-auto-columns: 86%;
+            overflow-x: auto;
+            scroll-snap-type: x mandatory;
+            -webkit-overflow-scrolling: touch;
+            gap: 12px;
+            padding: 4px 2px 10px 2px;
+          }
+          .snapgrid > *{ scroll-snap-align: start; min-width: 0; }
+          .section-icon{ width:20px !important; height:20px !important; }
+        }
+      `}</style>
     </div>
   );
 }
