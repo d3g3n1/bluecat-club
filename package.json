@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "ops:run": "node ./automation/run-ops.mjs",
     "open-daily": "node -r dotenv/config automation/open-daily.mjs dotenv_config_path=.env.admin",
     "settle-now": "node -r dotenv/config automation/settle-ready.mjs dotenv_config_path=.env.admin"
   },
