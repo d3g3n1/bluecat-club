@@ -13,7 +13,7 @@ A minimal, fast dApp built with **Vite + React + viem**.
 
 | Contract | Address |
 |---|---|
-| **Raffle** | `0x9D8de4162f4928d88027AFB67F51178D4Eb6C3Bc` |
+| **Raffle** | `0xA2974Be72E0EbD66a2368e8734b64941290CC1Ad` |
 | **$TOSHI token** | `0xAC1Bd2486aAf3B5C0fc3Fd868558b082a531B2B4` |
 | **$BCAT token** | *(TBD)* |
 | **Staking (BCAT)** | *Coming soon* |
