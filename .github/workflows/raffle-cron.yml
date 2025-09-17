@@ -1,25 +1,33 @@
-
 name: BlueCat Raffle Cron
+
 on:
   schedule:
+    # Every 15 minutes (safe + handles DST). Change to "5 * * * *" for hourly.
     - cron: "*/15 * * * *"
   workflow_dispatch: {}
 
 jobs:
-  run:
+  run-ops:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: "20" }
-      - run: npm ci || npm i
-      - run: npm run open-daily
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Close/Finalize/Open rounds
         env:
+          RPC_URL: ${{ secrets.RPC_URL }}
+          RAFFLE_ADDRESS: ${{ secrets.RAFFLE_ADDRESS }}
           ADMIN_PRIVATE_KEY: ${{ secrets.ADMIN_PRIVATE_KEY }}
-          RPC_URL: https://mainnet.base.org
-          RAFFLE_ADDRESS: 0x9D8de4162f4928d88027AFB67F51178D4Eb6C3Bc
-      - run: npm run settle-now
-        env:
-          ADMIN_PRIVATE_KEY: ${{ secrets.ADMIN_PRIVATE_KEY }}
-          RPC_URL: https://mainnet.base.org
-          RAFFLE_ADDRESS: 0x9D8de4162f4928d88027AFB67F51178D4Eb6C3Bc
+          MASTER_SECRET: ${{ secrets.MASTER_SECRET }}
+        run: npm run ops:run
