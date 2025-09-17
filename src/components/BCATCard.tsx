@@ -1,7 +1,11 @@
+// src/components/BCATCard.tsx
 import React from 'react';
 import { BCAT_ADDRESS } from '../config/addresses';
+
 export default function BCATCard(){
   const addr = BCAT_ADDRESS || '0xBCAT…PLACEHOLDER';
+  const buyUrl = `https://toshimart.xyz/${BCAT_ADDRESS || '0x681e0a28637e9f9a70fb9fc6424489d8c8cb8453'}`;
+
   return (
     <div id='bcat' className='card neon-border' style={{display:'grid', gridTemplateColumns:'auto 1fr', gap:16}}>
       <img src='/docs.svg' alt='' style={{width:28,height:28,opacity:.9}}/>
@@ -16,8 +20,25 @@ export default function BCATCard(){
         </div>
         <div style={{height:10}}/>
         <div className='row'>
-          <a className='pill cta-ghost' href='#buy-bcat'>Buy $BCAT</a>
-          <a className='pill' href={BCAT_ADDRESS ? 'https://basescan.org/address/'+BCAT_ADDRESS : '#'} target='_blank' rel='noreferrer'>View on BaseScan</a>
+          <a
+            className='pill cta-ghost'
+            href={buyUrl}
+            target='_blank'
+            rel='noreferrer'
+            aria-label='Buy $BCAT on ToshiMart'
+            title='Buy $BCAT'
+          >
+            Buy $BCAT
+          </a>
+
+          <a
+            className='pill'
+            href={BCAT_ADDRESS ? `https://basescan.org/address/${BCAT_ADDRESS}` : '#'}
+            target='_blank'
+            rel='noreferrer'
+          >
+            View on BaseScan
+          </a>
         </div>
         <div style={{height:8}}/>
         <small className='muted'>Phase 1: Snapshot-style votes • Phase 2: on-chain treasury votes • Phase 3: proposals for new game modes.</small>
