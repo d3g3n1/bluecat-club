@@ -12,7 +12,8 @@ const stepBox: React.CSSProperties = {
   border: '1px solid var(--border)',
   background: 'rgba(255,255,255,.05)',
   boxShadow: 'var(--edge-glow)',
-  transition: 'transform .16s cubic-bezier(.22,1,.36,1), box-shadow .16s cubic-bezier(.22,1,.36,1)'
+  transition: 'transform .16s cubic-bezier(.22,1,.36,1), box-shadow .16s cubic-bezier(.22,1,.36,1)',
+  minWidth: 0,
 };
 
 function Step({ n, title, body, icon }:{
@@ -39,14 +40,17 @@ export default function HowItWorks(){
     <div id="how" className='card neon-border' style={{padding:18}}>
       <div className='row' style={{justifyContent:'space-between', alignItems:'center', marginBottom:10}}>
         <div className='title-xl' style={{fontSize:20, display:'flex', alignItems:'center', gap:10}}>
-          {/* icon switched to ticket.svg */}
-          <img src="/ticket.svg" alt="Ticket" style={{width:22,height:22,borderRadius:6}}/>
+          {/* small section icon */}
+          <img className="section-icon" src="/ticket.svg" alt="Ticket" style={{width:22,height:22,borderRadius:6}}/>
           How Raffle Works
         </div>
       </div>
 
-      {/* Steps */}
-      <div style={{display:'grid', gridTemplateColumns:'repeat(4, minmax(220px, 1fr))', gap:12}}>
+      {/* Steps (desktop: 4 cols; mobile: horizontal snap) */}
+      <div
+        className="grid snapgrid"
+        style={{ display:'grid', gridTemplateColumns:'repeat(4, minmax(220px, 1fr))', gap:12 }}
+      >
         <Step n={1} title='Buy Tickets in $TOSHI'
           body='Enter an amount and click Buy Tickets before the daily cut-off (10:00 PM ET).'
           icon='🎫' />
@@ -74,10 +78,22 @@ export default function HowItWorks(){
         All rounds are on-chain. We publish a commit hash at open; after close we reveal the secret and derive winners with the last blockhash. See Fairness for details.
       </div>
 
+      {/* Scoped styles: hover + mobile snap */}
       <style>{`
         .hiw-step:hover { transform: translateY(-2px); box-shadow: 0 0 0 1px rgba(43,208,255,.22), 0 0 28px rgba(43,208,255,.16); }
         @media (max-width: 980px){
-          .card > div[style*="grid-template-columns"]{ grid-template-columns: repeat(2, minmax(0,1fr)); }
+          .snapgrid{
+            grid-template-columns: none !important;
+            grid-auto-flow: column;
+            grid-auto-columns: 86%;
+            overflow-x: auto;
+            scroll-snap-type: x mandatory;
+            -webkit-overflow-scrolling: touch;
+            gap: 12px;
+            padding: 4px 2px 10px 2px;
+          }
+          .snapgrid > *{ scroll-snap-align: start; min-width: 0; }
+          .section-icon{ width:20px !important; height:20px !important; }
         }
       `}</style>
     </div>
