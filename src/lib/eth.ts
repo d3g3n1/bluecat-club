@@ -17,14 +17,19 @@ let selectedProvider: any | undefined;
 
 function detectProviders(): any[] {
   const uniq = new Set<any>();
-  const add = (p: any) => { if (p) uniq.add(p); };
+  const w = window as any;
+  const eth = w.ethereum;
+  const add = (p: any) => p && uniq.add(p);
 
-  const eth: any = (window as any).ethereum;
-  if (eth?.providers?.length) eth.providers.forEach(add);
-  add(eth);
+  if (eth?.providers && Array.isArray(eth.providers)) eth.providers.forEach(add);
+  add(eth); // single injected
 
-  const phantomEth: any = (window as any).phantom?.ethereum;
-  if (phantomEth) { try { phantomEth.isPhantom = true; } catch {} add(phantomEth); }
+  // Phantom EVM
+  const phantomEth: any = w.phantom?.ethereum;
+  if (phantomEth) {
+    try { phantomEth.isPhantom = true; } catch {}
+    add(phantomEth);
+  }
   if (eth?.isPhantom) add(eth);
 
   return Array.from(uniq);
@@ -33,23 +38,23 @@ function detectProviders(): any[] {
 function pickProvider(kind: 'metamask' | 'phantom' | 'coinbase'): any | undefined {
   const list = detectProviders();
   if (kind === 'metamask') {
-    return list.find(p => p?.isMetaMask) ||
-           list.find(p => p && !p.isCoinbaseWallet && !p.isPhantom);
+    return list.find(p => p?.isMetaMask)
+        || list.find(p => p && !p.isCoinbaseWallet && !p.isPhantom);
   }
   if (kind === 'coinbase') return list.find(p => p?.isCoinbaseWallet);
   if (kind === 'phantom')  return list.find(p => p?.isPhantom) || (window as any).phantom?.ethereum;
   return undefined;
 }
 
-export function useWallet(kind: 'metamask' | 'phantom' | 'coinbase') {
+function getProvider(): any | undefined {
+  return selectedProvider || (window as any).ethereum;
+}
+
+function useWallet(kind: 'metamask' | 'phantom' | 'coinbase') {
   const p = pickProvider(kind);
   if (!p) throw new Error(`${kind} not found. If Phantom: enable EVM support in Phantom settings.`);
   selectedProvider = p;
   (window as any).__bluecatProvider = p; // debug
-}
-
-export function getProvider(): any | undefined {
-  return selectedProvider || (window as any).ethereum;
 }
 
 /* ---------------- viem clients ---------------- */
@@ -74,6 +79,21 @@ export async function requestAccounts(): Promise<Address[]> {
   return (accounts || []).map(a => a as Address);
 }
 
+/** Try to show account chooser; fall back to requestAccounts */
+export async function requestAccountPermissions(): Promise<Address[]> {
+  const provider = getProvider();
+  if (!provider) throw new Error('Wallet not found.');
+  try {
+    await provider.request({
+      method: 'wallet_requestPermissions',
+      params: [{ eth_accounts: {} }],
+    });
+  } catch {
+    // some wallets don’t implement this → ignore
+  }
+  return requestAccounts();
+}
+
 export async function switchToBase(): Promise<void> {
   const provider = getProvider();
   if (!provider) throw new Error('Wallet not found.');
@@ -92,7 +112,7 @@ export async function switchToBase(): Promise<void> {
         }],
       });
       await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0x2105' }] });
-    } else if (e?.code !== -32601) { // -32601: method not supported → ignore
+    } else if (e?.code !== -32601) {
       throw e;
     }
   }
@@ -134,14 +154,34 @@ export async function getAllowance(owner: Address, spender: Address, token: Addr
   return alw;
 }
 
-/* ------------- Convenience: connect the chosen wallet ------------- */
-/** Call this from your wallet picker button. */
+/* ------------- Entry points ------------- */
+
+/** Call from wallet picker. Always prompts wallet to choose account again after disconnect. */
 export async function connectWith(kind: 'metamask' | 'phantom' | 'coinbase') {
-  useWallet(kind);        // 1) set provider
-  // Some wallets prefer accounts first, then switch; do both safely:
-  const accs = await requestAccounts(); // 2) open correct wallet
+  useWallet(kind);
+  const accs = await requestAccountPermissions(); // prompt selection if wallet supports it
   try { await switchToBase(); } catch {}
   return accs;
+}
+
+/** Strong disconnect: clear caches so next Connect re-prompts. */
+export async function hardDisconnect() {
+  const provider = getProvider();
+  try { await provider?.disconnect?.(); } catch {}
+  try {
+    await provider?.request?.({
+      method: 'wallet_revokePermissions',
+      params: [{ eth_accounts: {} }],
+    });
+  } catch {}
+  try {
+    for (const k of Object.keys(localStorage)) {
+      if (k.startsWith('wc@') || k.includes('walletconnect')) localStorage.removeItem(k);
+      if (k.includes('wagmi.store')) localStorage.removeItem(k);
+      if (k.includes('coinbaseWalletSDK')) localStorage.removeItem(k);
+    }
+  } catch {}
+  selectedProvider = undefined;
 }
 
 /* Optional debug */
