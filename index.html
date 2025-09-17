@@ -81,6 +81,91 @@
       .toast{position:fixed; right:16px; bottom:16px; background:#0d1c31; border:1px solid var(--line); padding:12px 14px; border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,.6); max-width:80vw}
       .skeleton{ background: linear-gradient(90deg,#0e2037,#143256,#0e2037); background-size: 200% 100%; animation: shimmer 1.6s infinite; border-radius:8px; }
       @keyframes shimmer{ 0%{ background-position: 200% 0 } 100%{ background-position: -200% 0 } }
+
+      /* ======== MOBILE POLISH + SCROLL-SNAP (only mobile) ======== */
+
+      @media (max-width: 980px) {
+        .wrap { padding: 16px; }
+        .hero { grid-template-columns: 1fr; gap: 14px; padding: 14px; }
+      }
+
+      /* Small phones (≤ 420px) */
+      @media (max-width: 420px) {
+        /* Global rhythm */
+        .wrap { padding: 12px; }
+        .glass { border-radius: 14px; }
+        .card { padding: 14px; border-radius: 14px; }
+        .row { gap: 8px; }
+
+        /* Nav */
+        .nav { padding: 10px 12px; }
+        .brand img { width: 22px; height: 22px; }
+        .pill { padding: 8px 12px; font-size: 14px; }
+        .chip { padding: 6px 10px; font-size: 13px; }
+
+        /* Hero typography */
+        .title-xl { font-size: clamp(28px, 8vw, 38px); line-height: 1.05; }
+        .big-amount { font-size: clamp(36px, 13vw, 56px); line-height: 1.02; }
+        .digital { font-size: clamp(16px, 6vw, 22px); letter-spacing: 1px; }
+
+        /* Inputs + qty chips */
+        input { font-size: 16px; padding: 9px 10px; }
+        .qtychip { padding: 7px 9px; font-size: 14px; }
+
+        /* Progress + small labels */
+        .progress { height: 8px; }
+        small.muted { font-size: 12px; }
+
+        /* ---- Scroll-snap carousels for card grids ---- */
+        .grid {
+          display: flex;                 /* switch from grid to horizontal flex */
+          gap: 12px;
+          overflow-x: auto;
+          padding-bottom: 6px;
+          scroll-snap-type: x mandatory;
+          -webkit-overflow-scrolling: touch;
+        }
+        .grid .card {
+          flex: 0 0 82%;                 /* 82% viewport width per card */
+          scroll-snap-align: start;
+        }
+
+        /* If any grid contains non-card children, keep them visible */
+        .grid > * { flex: 0 0 auto; }
+
+        /* Reduce extra margins */
+        .divider { margin: 18px 0; }
+
+        /* Mascot scale */
+        img[alt="BlueCat"] { width: 220px !important; height: 220px !important; }
+      }
+
+      /* Slightly wider phones (421–600px) */
+      @media (min-width: 421px) and (max-width: 600px) {
+        .title-xl { font-size: clamp(32px, 7vw, 44px); }
+        .big-amount { font-size: clamp(42px, 11vw, 60px); }
+        .digital { font-size: clamp(18px, 5.5vw, 24px); }
+        .chip { padding: 7px 11px; }
+        .progress { height: 10px; }
+
+        /* Scroll-snap grids scale */
+        .grid {
+          display: flex;
+          gap: 14px;
+          overflow-x: auto;
+          padding-bottom: 8px;
+          scroll-snap-type: x mandatory;
+          -webkit-overflow-scrolling: touch;
+        }
+        .grid .card {
+          flex: 0 0 70%;                 /* a bit wider on larger phones */
+          scroll-snap-align: start;
+        }
+        .grid > * { flex: 0 0 auto; }
+      }
+
+      /* Prevent horizontal jiggle on touch devices */
+      html, body { overscroll-behavior: contain; }
     </style>
   </head>
   <body>
