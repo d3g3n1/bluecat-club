@@ -50,6 +50,7 @@
       .nav{display:flex; align-items:center; justify-content:space-between; padding:14px 16px;}
       .brand{display:flex; gap:12px; align-items:center; font-weight:800; letter-spacing:.2px; font-family:'Space Grotesk',sans-serif;}
       .brand img{width:28px;height:28px; filter: drop-shadow(0 0 10px rgba(54,194,255,.7));}
+
       .pill{border-radius:999px; border:1px solid rgba(54,194,255,.35); background:#0d1c31; color:var(--ink); padding:10px 14px; cursor:pointer; transition:.18s; text-decoration:none; display:inline-flex; align-items:center; gap:8px}
       .pill:hover{ box-shadow:0 0 18px rgba(54,194,255,.35); border-color: rgba(54,194,255,.6); transform: translateY(-1px) scale(1.02); }
       .cta{ background: linear-gradient(90deg, var(--blue), var(--pink)); border:none; color:#05111d; font-weight:800; text-shadow:0 1px 0 rgba(255,255,255,.25); }
@@ -59,23 +60,27 @@
       .title-xl{font-size:48px; font-weight:800; letter-spacing:.5px; font-family:'Space Grotesk',sans-serif; text-shadow:0 0 25px rgba(54,194,255,.35), 0 0 16px rgba(255,60,172,.25)}
       .muted{color:var(--muted)}
       .row{display:flex; gap:12px; align-items:center; flex-wrap:wrap}
+
       .chip{display:inline-flex;align-items:center;gap:8px;border:1px solid rgba(54,194,255,.35); border-radius:999px; padding:8px 12px; background:#0f223a}
       .card{border:1px solid var(--line); border-radius:18px; padding:18px; background:linear-gradient(180deg, rgba(14,26,44,.9), rgba(9,16,30,.95)); box-shadow:0 16px 46px rgba(0,0,0,.5)}
       .neon-border{ position:relative; }
       .neon-border::after{ content:''; position:absolute; inset:-1px; border-radius:18px; background: linear-gradient(90deg, rgba(54,194,255,.35), rgba(168,85,247,.35)); filter: blur(10px); opacity:.45; z-index:-1; }
-      .grid{display:grid; grid-template-columns: 1fr 1fr; gap:18px}
 
+      .grid{display:grid; grid-template-columns: 1fr 1fr; gap:18px}
       @media(max-width:980px){ .hero{grid-template-columns:1fr} .grid{grid-template-columns:1fr} }
 
       .big-amount{font-size:56px; font-weight:800; letter-spacing:1px; text-shadow:0 0 28px rgba(54,194,255,.45), 0 0 18px rgba(168,85,247,.25)}
       .digital{font-family: 'Space Grotesk', monospace; font-size:28px; letter-spacing:2px; color:#cfe9ff; text-shadow:0 0 18px rgba(54,194,255,.7)}
+
       .progress{height:12px; border-radius:999px; background:#0e223a; border:1px solid var(--line); overflow:hidden; position:relative}
       .progress > i{display:block; height:100%; background:linear-gradient(90deg, var(--blue), var(--pink)); width:0%}
       .breath{ animation: breathe 1.6s ease-in-out infinite alternate }
       @keyframes breathe{ from{ filter:brightness(1);} to{ filter:brightness(1.25);} }
+
       input{font-size:16px;border-radius:12px;border:1px solid var(--line);background:#0c1b2e;color:#e8f3ff;padding:10px 12px}
       .qtychip{border:1px solid rgba(54,194,255,.35); padding:8px 10px; border-radius:12px; cursor:pointer; background:#0f223a}
       .qtychip:hover{box-shadow:0 0 12px rgba(54,194,255,.35)}
+
       details summary{cursor:pointer; list-style:none}
       details summary::-webkit-details-marker{display:none}
       details{border:1px solid var(--line); border-radius:16px; padding:12px 14px; background:#0d1b2f}
@@ -87,79 +92,83 @@
       @keyframes shimmer{ 0%{ background-position: 200% 0 } 100%{ background-position: -200% 0 } }
 
       /* ======== MOBILE POLISH ======== */
+
       @media (max-width: 980px) {
-        /* keep everything full-width & centered */
-        .wrap { max-width: 100%; padding: 16px; }
-        .glass, .card { width: 100%; box-sizing: border-box; margin: 0 auto; }
+        .wrap { padding: 16px; }
         .hero { grid-template-columns: 1fr; gap: 14px; padding: 14px; }
 
-        /* trim header pills to FAQ + Contracts + Connect */
-        .nav .pill { display: none; }
-        .nav a[href*="faq"], .nav a[href*="contract"], .nav a[href*="contracts"], .nav .cta { display:inline-flex; }
+        /* header pills inside hero: smaller & no overflow */
+        .hero .row .pill { padding: 7px 10px; font-size: 13px; line-height: 1; }
+        .hero .row { flex-wrap: nowrap; overflow-x: auto; gap: 8px; -webkit-overflow-scrolling: touch; }
+        .hero .row::-webkit-scrollbar { display:none; }
 
-        /* friendlier typography & spacing */
-        .row { gap: 10px; }
-        .brand img { width: 22px; height: 22px; }
-        .pill { padding: 8px 12px; font-size: 14px; }
-        .chip { padding: 6px 10px; font-size: 13px; }
+        /* digital readout & amounts */
         .title-xl { font-size: clamp(28px, 8vw, 38px); line-height: 1.05; }
         .big-amount { font-size: clamp(36px, 13vw, 56px); line-height: 1.02; }
         .digital { font-size: clamp(16px, 6vw, 22px); letter-spacing: 1px; }
-        input { font-size: 16px; padding: 9px 10px; }
-        .qtychip { padding: 7px 9px; font-size: 14px; }
         .progress { height: 8px; }
         small.muted { font-size: 12px; }
 
-        /* make big hero cat image responsive */
-        img[alt="BlueCat"] { max-width: 260px; width: 72%; height: auto; margin: 0 auto; display: block; }
-
-        /* prevent long text/chips from overflowing (e.g., BCAT contract) */
-        .pill, .chip { white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
-
-        /* community card: stack social icons vertically */
-        .card .row:has(a[href*="t.me"], a[href*="telegram"], a[href*="x.com"], a[href*="twitter.com"], a[href*="docs"]) {
-          flex-direction: column; align-items: flex-start; gap: 10px;
-        }
-
-        /* horizontal carousels: centered snap + better touch */
+        /* --- scroll-snap helpers (used by HowItWorks / HowStakingWorks) --- */
+        .snapwrap { overflow: hidden; }
         .snapgrid {
           display: flex;
-          gap: 14px;
+          gap: 12px;
           overflow-x: auto;
-          padding: 6px 12px 12px;
+          padding: 4px 12px 10px;
           scroll-snap-type: x mandatory;
-          -webkit-overflow-scrolling: touch;
-          touch-action: pan-x;          /* swipe moves the carousel, not the page */
           scroll-padding: 12px;
+          -webkit-overflow-scrolling: touch;
+          align-items: stretch;
         }
-        .snapgrid > .card,
-        .snapgrid > * {
-          flex: 0 0 88%;
-          scroll-snap-align: center;    /* centered snap */
-          max-width: 88%;
-        }
+        .snapgrid > * { flex: 0 0 86%; scroll-snap-align: start; }
+        .snapgrid .card { margin: 0; }
 
-        /* remove phantom horizontal panning */
-        html, body { overscroll-behavior-x: none; }
-      }
-
-      /* Small phones (≤ 420px) */
-      @media (max-width: 420px) {
-        .wrap { padding: 12px; }
-        .glass { border-radius: 14px; }
+        /* tighten generic card spacing */
         .card { padding: 14px; border-radius: 14px; }
-        .nav { padding: 10px 12px; }
+        .chip { padding: 6px 10px; font-size: 13px; }
+        .pill { padding: 8px 12px; font-size: 14px; }
+        .row { gap: 8px; }
         .divider { margin: 18px 0; }
-        .snapgrid > .card, .snapgrid > * { flex-basis: 90%; max-width: 90%; }
+
+        /* ONLY scale the big hero cat; keep tiny title icons small */
+        .hero img[src$="/mascot.svg"] {
+          max-width: 260px;
+          width: 72%;
+          height: auto;
+          margin: 0 auto;
+          display: block;
+        }
+        img[src$="/mascot2.svg"],
+        img[src$="/ticket.svg"] {
+          width: 22px !important;
+          height: 22px !important;
+          border-radius: 6px;
+        }
+
+        /* BCAT card alignment: keep heading as-is, nudge content left & wrap nicely */
+        .card:has(.title-xl:has(img[src$="/mascot2.svg"])) *:not(.title-xl) {
+          margin-left: 0 !important;
+        }
+        .card:has(.title-xl:has(img[src$="/mascot2.svg"])) .chip { max-width: 100%; }
+        .card:has(.title-xl:has(img[src$="/mascot2.svg"])) .row { flex-wrap: wrap; }
+        .card:has(.title-xl:has(img[src$="/mascot2.svg"])) p,
+        .card:has(.title-xl:has(img[src$="/mascot2.svg"])) .muted { text-align: left; }
+
+        /* prevent horizontal page panning while snapping lists */
+        html, body { overscroll-behavior: contain; }
       }
 
-      /* 421–600px */
+      /* Slightly wider phones (421–600px) */
       @media (min-width: 421px) and (max-width: 600px) {
         .title-xl { font-size: clamp(32px, 7vw, 44px); }
         .big-amount { font-size: clamp(42px, 11vw, 60px); }
         .digital { font-size: clamp(18px, 5.5vw, 24px); }
         .chip { padding: 7px 11px; }
         .progress { height: 10px; }
+
+        .snapgrid { gap: 14px; padding: 6px 14px 12px; }
+        .snapgrid > * { flex-basis: 74%; }
       }
     </style>
   </head>
