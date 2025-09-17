@@ -103,7 +103,7 @@ export default function Hero() {
         <div className="row">
           <a
             className="pill cta"
-            href="https://toshimart.xyz/board"
+            href="https://toshimart.xyz/0x681e0a28637e9f9a70fb9fc6424489d8c8cb8453"
             target="_blank"
             rel="noreferrer"
             aria-label="Buy BCAT on ToshiMart"
