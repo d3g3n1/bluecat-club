@@ -93,27 +93,15 @@
 
       /* ======== MOBILE POLISH ======== */
       @media (max-width: 980px) {
-        /* keep everything full-width & centered */
+        /* full-width containers */
         .wrap { max-width: 100%; padding: 16px; }
         .glass, .card { width: 100%; box-sizing: border-box; margin: 0 auto; }
         .hero { grid-template-columns: 1fr; gap: 14px; padding: 14px; }
 
-        /* HERO HEADER CLEANUP:
-           - hide big mascot image
-           - hide the immediate text block next to it (BlueCat Club / $BCAT label)
-           - show ONLY FAQ, Contracts, Community + Connect/Disconnect button */
-        .hero img[alt="BlueCat"] { display: none !important; }
-        .hero img[alt="BlueCat"] + * { display: none !important; }
+        /* HIDE ONLY THE SMALL HEADER BRAND (logo/text) */
+        .nav .brand { display: none !important; }
 
-        /* if your hero pills are links, trim to the wanted set */
-        .hero .pill { display: none; }
-        .hero a[href*="faq"].pill,
-        .hero a[href*="contract"].pill,
-        .hero a[href*="contracts"].pill,
-        .hero a[href*="community"].pill,
-        .hero .cta { display: inline-flex; }
-
-        /* top NAV: same trim as hero on mobile */
+        /* top NAV: keep just FAQ / Contracts / Community / Connect */
         .nav .pill { display: none; }
         .nav a[href*="faq"].pill,
         .nav a[href*="contract"].pill,
@@ -121,9 +109,16 @@
         .nav a[href*="community"].pill,
         .nav .cta { display: inline-flex; }
 
-        /* friendlier typography & spacing */
+        /* (optional) do the same in hero header if you also render pills there */
+        .hero .pill { display: none; }
+        .hero a[href*="faq"].pill,
+        .hero a[href*="contract"].pill,
+        .hero a[href*="contracts"].pill,
+        .hero a[href*="community"].pill,
+        .hero .cta { display: inline-flex; }
+
+        /* copy fit */
         .row { gap: 10px; }
-        .brand img { width: 22px; height: 22px; }
         .pill { padding: 8px 12px; font-size: 14px; }
         .chip { padding: 6px 10px; font-size: 13px; }
         .title-xl { font-size: clamp(28px, 8vw, 38px); line-height: 1.05; }
@@ -134,15 +129,15 @@
         .progress { height: 8px; }
         small.muted { font-size: 12px; }
 
-        /* prevent long text/chips from overflowing (e.g., BCAT contract) */
+        /* prevent long chips from overflowing (e.g., contracts) */
         .pill, .chip { white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
 
-        /* community card: stack social icons vertically if present */
+        /* community card: stack socials vertically if present */
         .card .row:has(a[href*="t.me"], a[href*="telegram"], a[href*="x.com"], a[href*="twitter.com"], a[href*="docs"]) {
           flex-direction: column; align-items: flex-start; gap: 10px;
         }
 
-        /* horizontal carousels: centered snap + better touch */
+        /* centered horizontal snap carousels */
         .snapgrid {
           display: flex;
           gap: 14px;
@@ -160,11 +155,11 @@
           max-width: 88%;
         }
 
-        /* remove phantom horizontal panning */
+        /* stop sideways bounce */
         html, body { overscroll-behavior-x: none; }
       }
 
-      /* Small phones (≤ 420px) */
+      /* ≤ 420px */
       @media (max-width: 420px) {
         .wrap { padding: 12px; }
         .glass { border-radius: 14px; }
