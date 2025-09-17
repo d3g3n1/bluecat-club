@@ -41,7 +41,9 @@
       :root{ --bg0:#02060f; --bg1:#08172a; --ink:#f2f7ff; --muted:#9fb6d1; --line:#13375e; --blue:#2bd0ff; --pink:#ff5bd5; --violet:#a855f7; }
       html,body,#root{height:100%;margin:0}
       body{ font-family:Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; color:var(--ink);
-        background: radial-gradient(1200px 800px at 20% 10%, rgba(54,194,255,.08), transparent 60%), radial-gradient(1000px 800px at 80% 20%, rgba(168,85,247,.06), transparent 60%), linear-gradient(135deg, var(--bg1), var(--bg0)); overflow-x:hidden; }
+        background: radial-gradient(1200px 800px at 20% 10%, rgba(54,194,255,.08), transparent 60%),
+                    radial-gradient(1000px 800px at 80% 20%, rgba(168,85,247,.06), transparent 60%),
+                    linear-gradient(135deg, var(--bg1), var(--bg0)); overflow-x:hidden; }
       body::before{ content:''; position:fixed; inset:-20% -40%; background: repeating-linear-gradient(75deg, rgba(54,194,255,.04) 0 2px, transparent 2px 22px); animation: drift 22s linear infinite; pointer-events:none; }
       @keyframes drift{ from{ transform: translateX(0) skewX(-6deg);} to{ transform: translateX(40%) skewX(-6deg);} }
       .wrap{max-width:1180px; margin:0 auto; padding:24px}
@@ -82,71 +84,39 @@
       .skeleton{ background: linear-gradient(90deg,#0e2037,#143256,#0e2037); background-size: 200% 100%; animation: shimmer 1.6s infinite; border-radius:8px; }
       @keyframes shimmer{ 0%{ background-position: 200% 0 } 100%{ background-position: -200% 0 } }
 
-      /* ======== MOBILE POLISH (safe) ======== */
+      /* ======== TINY HELPERS ======== */
+      .section-icon{ width:22px; height:22px; border-radius:6px; }
+      .hide-scrollbar::-webkit-scrollbar{ display:none; }
+      .hide-scrollbar{ scrollbar-width:none; }
+      html, body { overscroll-behavior: contain; }
 
+      /* ======== MOBILE POLISH (safe) ======== */
       @media (max-width: 980px) {
         .wrap { padding: 16px; }
         .hero { grid-template-columns: 1fr; gap: 14px; padding: 14px; }
-      }
 
-      /* Small phones (≤ 420px) */
-      @media (max-width: 420px) {
-        .wrap { padding: 12px; }
-        .glass { border-radius: 14px; }
-        .card { padding: 14px; border-radius: 14px; }
-        .row { gap: 8px; }
-        .nav { padding: 10px 12px; }
-        .brand img { width: 22px; height: 22px; }
-        .pill { padding: 8px 12px; font-size: 14px; }
-        .chip { padding: 6px 10px; font-size: 13px; }
-        .title-xl { font-size: clamp(28px, 8vw, 38px); line-height: 1.05; }
-        .big-amount { font-size: clamp(36px, 13vw, 56px); line-height: 1.02; }
-        .digital { font-size: clamp(16px, 6vw, 22px); letter-spacing: 1px; }
-        input { font-size: 16px; padding: 9px 10px; }
-        .qtychip { padding: 7px 9px; font-size: 14px; }
-        .progress { height: 8px; }
-        small.muted { font-size: 12px; }
-
-        /* Scroll-snap ONLY when you opt-in with .snapgrid */
-        .snapgrid {
-          display: flex;
-          gap: 12px;
-          overflow-x: auto;
-          padding-bottom: 6px;
-          scroll-snap-type: x mandatory;
-          -webkit-overflow-scrolling: touch;
+        /* Opt-in horizontal snap for rows marked .snapgrid (components updated) */
+        .snapgrid{
+          display:flex;
+          gap:12px;
+          overflow-x:auto;
+          padding-bottom:6px;
+          scroll-snap-type:x mandatory;
+          -webkit-overflow-scrolling:touch;
         }
-        .snapgrid .card {
-          flex: 0 0 82%;
-          scroll-snap-align: start;
+        .snapgrid > *{
+          flex:0 0 82%;
+          scroll-snap-align:start;
         }
-        .snapgrid > * { flex: 0 0 auto; }
 
-        .divider { margin: 18px 0; }
-        img[alt="BlueCat"] { width: 220px !important; height: 220px !important; }
+        /* keep section header icons small on mobile */
+        .section-icon{ width:20px; height:20px; }
       }
 
       /* Slightly wider phones (421–600px) */
       @media (min-width: 421px) and (max-width: 600px) {
-        .title-xl { font-size: clamp(32px, 7vw, 44px); }
-        .big-amount { font-size: clamp(42px, 11vw, 60px); }
-        .digital { font-size: clamp(18px, 5.5vw, 24px); }
-        .chip { padding: 7px 11px; }
-        .progress { height: 10px; }
-
-        .snapgrid {
-          display: flex;
-          gap: 14px;
-          overflow-x: auto;
-          padding-bottom: 8px;
-          scroll-snap-type: x mandatory;
-          -webkit-overflow-scrolling: touch;
-        }
-        .snapgrid .card { flex: 0 0 70%; scroll-snap-align: start; }
-        .snapgrid > * { flex: 0 0 auto; }
+        .snapgrid > *{ flex-basis:70%; }
       }
-
-      html, body { overscroll-behavior: contain; }
     </style>
   </head>
   <body>
