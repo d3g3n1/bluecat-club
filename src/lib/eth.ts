@@ -4,6 +4,7 @@ import {
   createWalletClient,
   custom,
   http,
+  fallback,         // ⬅️ added
   parseUnits,
   Address,
 } from 'viem';
@@ -59,9 +60,17 @@ function useWallet(kind: 'metamask' | 'phantom' | 'coinbase') {
 
 /* ---------------- viem clients ---------------- */
 
+// More resilient reads: your RPC plus two public fallbacks.
 export const publicClient = createPublicClient({
   chain: base,
-  transport: http(RPC_URL),
+  transport: fallback(
+    [
+      http(RPC_URL),
+      http('https://mainnet.base.org'),
+      http('https://base.blockpi.network/v1/rpc/public'),
+    ],
+    { rank: true } // prefer the first; fail over if it hiccups
+  ),
 });
 
 export async function getWalletClient() {
