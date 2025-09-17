@@ -1,6 +1,6 @@
 // src/components/RaffleCard.tsx
 import React from 'react';
-import { publicClient, getWalletClient } from '../lib/eth'; // keep your original import
+import { publicClient, getWalletClient } from '../lib/eth';
 import { RAFFLE_ABI } from '../abi/BlueCatRaffle';
 import { ERC20_ABI } from '../abi/erc20';
 import { RAFFLE_ADDRESS, TOSHI_ADDRESS } from '../config/addresses';
@@ -91,10 +91,11 @@ export default function RaffleCard({ address }: { address: string }) {
       const n = BigInt(count || '0');
       if (n <= 0n) { toast('Enter ticket count'); setBusy(false); return; }
       if (!address) { toast('Connect wallet'); setBusy(false); return; }
+      if (!round || round.closed) { toast('Round is closed'); setBusy(false); return; }
 
       const cost = ticketPrice * n;
 
-      // ✅ Get wallet client and active account
+      // ✅ signer
       const client = await getWalletClient();
       let [account] = await client.getAddresses();
       if (!account) {
@@ -104,10 +105,10 @@ export default function RaffleCard({ address }: { address: string }) {
       }
       if (!account) { toast('Connect wallet'); setBusy(false); return; }
 
-      // If allowance is insufficient, approve EXACT amount first
+      // 1) Approve EXACT amount if needed (direct send = most reliable)
       if (cost > allowance) {
         const txA = await client.writeContract({
-          account, // ✅ tell viem which address is sending
+          account,
           address: TOSHI_ADDRESS,
           abi: ERC20_ABI as any,
           functionName: 'approve',
@@ -117,9 +118,9 @@ export default function RaffleCard({ address }: { address: string }) {
         setAllowance(cost); // optimistic; load() will refresh later
       }
 
-      // Then buy
+      // 2) Buy
       const txB = await client.writeContract({
-        account, // ✅ required by viem@2
+        account,
         address: RAFFLE_ADDRESS,
         abi: RAFFLE_ABI as any,
         functionName: 'buyTickets',
