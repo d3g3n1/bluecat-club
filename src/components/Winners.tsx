@@ -1,212 +1,202 @@
 // src/components/Winners.tsx
 import React from 'react';
-import { createPublicClient, http } from 'viem';
+import { createPublicClient, http, decodeEventLog, parseAbiItem } from 'viem';
 import { base } from 'viem/chains';
-import { RAFFLE_ABI } from '../abi/BlueCatRaffle';
 import { RAFFLE_ADDRESS } from '../config/addresses';
 import { formatToken } from '../lib/format';
 
 type Leader = { address: `0x${string}`, total: bigint };
-type LastFinalize = {
-  blockNumber: number;
-  tx: string;
-  prize: string; // bigint as string
-  winners: `0x${string}`[];
-};
-type Cache = {
-  lastProcessed: number;                // highest block we've scanned & counted
-  processed: Record<string, true>;      // tx-hash set to de-dupe
-  totalPaid: string;                     // bigint as string
-  lastFinalize?: LastFinalize;
-  v: 1;                                  // version for future migrations
-};
+const shares = [45n, 25n, 15n, 10n, 5n] as const;
 
-const SHARES = [45n, 25n, 15n, 10n, 5n] as const;
-const LS_KEY = 'bluecat:winners:v1';
+// Dedicated logs RPC (Alchemy URL recommended)
+const LOGS_URL = (import.meta.env.VITE_LOGS_RPC_URL as string) || 'https://mainnet.base.org';
 
-// Logs client (dedicated URL so we can point it at Alchemy)
-const LOGS_URL =
-  (import.meta.env.VITE_LOGS_RPC_URL as string) || 'https://mainnet.base.org';
+const logsClient = createPublicClient({
+  chain: base,
+  transport: http(LOGS_URL),
+});
 
-const logsClient = createPublicClient({ chain: base, transport: http(LOGS_URL) });
+// RoundFinalized(uint256 indexed roundId, address[5] winners, uint256 prizePool, uint256 fee, bytes32 seed)
+const ROUND_FINALIZED = parseAbiItem(
+  'event RoundFinalized(uint256 indexed roundId, address[5] winners, uint256 prizePool, uint256 fee, bytes32 seed)'
+);
 
-function short(a: string) { return a ? a.slice(0, 6) + '…' + a.slice(-4) : ''; }
 const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
-
-function loadCache(): Cache {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) throw new Error('no cache');
-    const parsed = JSON.parse(raw) as Cache;
-    if (parsed?.v !== 1) throw new Error('bad version');
-    // basic sanity
-    if (typeof parsed.lastProcessed !== 'number' || typeof parsed.totalPaid !== 'string')
-      throw new Error('bad shape');
-    parsed.processed ||= {};
-    return parsed;
-  } catch {
-    return {
-      lastProcessed: 0,
-      processed: {},
-      totalPaid: '0',
-      v: 1,
-    };
-  }
-}
-
-function saveCache(c: Cache) {
-  // keep processed set from growing forever (cap ~2k hashes)
-  const MAX_HASHES = 2000;
-  const keys = Object.keys(c.processed);
-  if (keys.length > MAX_HASHES) {
-    // Drop oldest arbitrarily (we don't keep order; this is just a safety)
-    for (let i = 0; i < keys.length - MAX_HASHES; i++) delete c.processed[keys[i]];
-  }
-  localStorage.setItem(LS_KEY, JSON.stringify(c));
-}
-
-async function getWindowLogs(from: bigint, to: bigint, retries = 2) {
-  try {
-    return await logsClient.getLogs({
-      address: RAFFLE_ADDRESS,
-      abi: RAFFLE_ABI as any,
-      eventName: 'RoundFinalized',
-      fromBlock: from,
-      toBlock: to,
-    });
-  } catch (e: any) {
-    const msg = String(e?.message || '');
-    // free-tier friendliness
-    if (
-      retries > 0 &&
-      (msg.includes('429') ||
-       msg.toLowerCase().includes('rate') ||
-       msg.toLowerCase().includes('timeout') ||
-       msg.includes('400'))
-    ) {
-      await sleep(1200);
-      return getWindowLogs(from, to, retries - 1);
-    }
-    throw e;
-  }
-}
+const short = (a: string) => (a ? a.slice(0, 6) + '…' + a.slice(-4) : '');
 
 export default function Winners() {
   const [loading, setLoading] = React.useState(true);
   const [totalPaid, setTotalPaid] = React.useState<bigint>(0n);
-  const [lastWinners, setLastWinners] = React.useState<Leader[]>([]);
+  const [leaders, setLeaders] = React.useState<Leader[]>([]);
+
+  async function getWindowRawLogs(from: bigint, to: bigint, retries = 2) {
+    try {
+      // no ABI/eventName → raw topics/data; we’ll decode locally
+      return await logsClient.getLogs({
+        address: RAFFLE_ADDRESS,
+        fromBlock: from,
+        toBlock: to,
+      });
+    } catch (e: any) {
+      const msg = String(e?.message || '');
+      if (
+        retries > 0 &&
+        (msg.includes('429') ||
+          msg.toLowerCase().includes('rate') ||
+          msg.toLowerCase().includes('timeout') ||
+          msg.includes('400'))
+      ) {
+        await sleep(1200);
+        return getWindowRawLogs(from, to, retries - 1);
+      }
+      throw e;
+    }
+  }
+
+  function tryDecode(lg: any) {
+    try {
+      const { args, eventName } = decodeEventLog({
+        abi: [ROUND_FINALIZED],
+        data: lg.data,
+        topics: lg.topics,
+      });
+      if (eventName !== 'RoundFinalized') return undefined;
+
+      // args by name (and fallback by index for safety)
+      const a: any = args;
+      const prize: bigint | undefined = a?.prizePool ?? a?.[2];
+      const winners: (`0x${string}` | undefined)[] | undefined = a?.winners ?? a?.[1];
+
+      if (!prize || !winners) return undefined;
+
+      return { prize, winners };
+    } catch {
+      return undefined;
+    }
+  }
 
   async function load() {
     setLoading(true);
     try {
       const latest = await logsClient.getBlockNumber();
-      const deployBlockEnv = (import.meta.env.VITE_RAFFLE_DEPLOY_BLOCK as string) || '0';
-      const deployBlock = BigInt(deployBlockEnv || '0');
+      const maxBack = BigInt((import.meta.env.VITE_MAX_SCAN_BACK_BLOCKS as string) || '10000');
+      const deployBlock = BigInt((import.meta.env.VITE_RAFFLE_DEPLOY_BLOCK as string) || '0');
+      const hintBlockEnv = (import.meta.env.VITE_HINT_FINALIZE_BLOCK as string) || '';
+      const hintBlock = hintBlockEnv ? BigInt(hintBlockEnv) : undefined;
 
-      // --- load cache & determine where to start ---
-      const cache = loadCache();
-      const startBlock = (cache.lastProcessed > 0)
-        ? BigInt(cache.lastProcessed + 1)                         // continue forward
-        : (deployBlock > 0n ? deployBlock : (latest > 10000n ? latest - 10000n : 0n)); // initial backfill
+      let from = latest > maxBack ? (latest - maxBack) : 0n;
+      if (deployBlock > from) from = deployBlock;
 
-      // --- scan forward in ≤10-block windows (use 9 so [from, from+9] spans 10 blocks inclusive) ---
+      // ≤10 blocks inclusive → window size 9 (cur..cur+9)
       const WINDOW = 9n;
 
       console.log('[BlueCat] RPC_URL in bundle:', LOGS_URL);
       console.log('[Winners] addr=', RAFFLE_ADDRESS);
-      console.log('[Winners] latest=', Number(latest), 'from=', Number(startBlock));
+      console.log('[Winners] latest=', Number(latest), 'from=', Number(from), 'hint=', hintBlock ? Number(hintBlock) : 'none');
 
-      let cur = startBlock;
-      let mostRecent: LastFinalize | undefined = cache.lastFinalize;
+      const allDecoded: { prize: bigint; winners: `0x${string}`[] }[] = [];
+      const seen = new Set<string>();
 
-      while (cur <= latest) {
-        const to = cur + WINDOW > latest ? latest : cur + WINDOW;
+      // --- 1) Targeted pass around a known finalize block: [hint-4, hint+5] (10 blocks inclusive) ---
+      if (hintBlock) {
+        const hFrom = hintBlock > 4n ? (hintBlock - 4n) : 0n;
+        const hTo   = hintBlock + 5n;
 
-        let logs: any[] = [];
         try {
-          logs = await getWindowLogs(cur, to);
+          const raws = await getWindowRawLogs(hFrom, hTo);
+          const these = raws
+            .filter((lg: any) => {
+              const key = `${lg.transactionHash}:${lg.logIndex}`;
+              if (seen.has(key)) return false;
+              const dec = tryDecode(lg);
+              if (!dec) return false;
+              seen.add(key);
+              allDecoded.push({ prize: dec.prize, winners: dec.winners as `0x${string}`[] });
+              return true;
+            });
+          console.log(`[Winners] targeted found: ${these.length} in ${Number(hFrom)} → ${Number(hTo)}`);
+        } catch (e: any) {
+          // If Alchemy still complains (unlikely now), split into two sub-windows
+          console.warn('[Winners] targeted window split fallback:', e?.message || e);
+          const leftFrom = hFrom, leftTo = hintBlock;
+          const rightFrom = hintBlock + 1n, rightTo = hTo;
+          const parts = await Promise.allSettled([
+            getWindowRawLogs(leftFrom, leftTo),
+            getWindowRawLogs(rightFrom, rightTo),
+          ]);
+          for (const part of parts) {
+            if (part.status !== 'fulfilled') continue;
+            for (const lg of part.value) {
+              const key = `${lg.transactionHash}:${lg.logIndex}`;
+              if (seen.has(key)) continue;
+              const dec = tryDecode(lg);
+              if (!dec) continue;
+              seen.add(key);
+              allDecoded.push({ prize: dec.prize, winners: dec.winners as `0x${string}`[] });
+            }
+          }
+          console.log('[Winners] targeted (split) total added so far:', allDecoded.length);
+        }
+      }
+
+      // --- 2) Sweep in small windows from `from` to `latest` ---
+      let cur = from;
+      let windowsUsed = 0;
+      const MAX_WINDOWS = 600;
+
+      while (cur <= latest && windowsUsed < MAX_WINDOWS) {
+        const to = cur + WINDOW > latest ? latest : cur + WINDOW;
+        let raws: any[] = [];
+        try {
+          raws = await getWindowRawLogs(cur, to);
         } catch (e: any) {
           console.warn('[Winners] window error, skipping', { from: Number(cur), to: Number(to) }, e?.message || e);
         }
 
-        if (logs.length) {
-          // Count new finalizes into the cumulative total; track latest finalize
-          for (const lg of logs) {
-            const tx = (lg as any).transactionHash as string;
-            const bn = Number((lg as any).blockNumber ?? 0);
-            const prize = lg.args?.prizePool as bigint | undefined;
-            const winners = lg.args?.winners as `0x${string}`[] | undefined;
-
-            // Update "most recent"
-            if (bn >= (mostRecent?.blockNumber ?? 0) && prize && winners) {
-              mostRecent = {
-                blockNumber: bn,
-                tx,
-                prize: prize.toString(),
-                winners,
-              };
-            }
-
-            // Only add to total once per finalize tx
-            if (prize && !cache.processed[tx]) {
-              const curTotal = BigInt(cache.totalPaid || '0');
-              cache.totalPaid = (curTotal + prize).toString();
-              cache.processed[tx] = true;
-            }
-          }
+        let hits = 0;
+        for (const lg of raws) {
+          const key = `${lg.transactionHash}:${lg.logIndex}`;
+          if (seen.has(key)) continue;
+          const dec = tryDecode(lg);
+          if (!dec) continue;
+          seen.add(key);
+          allDecoded.push({ prize: dec.prize, winners: dec.winners as `0x${string}`[] });
+          hits++;
         }
+        if (hits) console.log(`[Winners] window hit (${Number(WINDOW)}): ${hits} in ${Number(cur)} → ${Number(to)}`);
 
-        cache.lastProcessed = Number(to);
-        saveCache(cache);
-
-        // throttle to be kind to free tier
-        await sleep(250);
-        if (to === latest) break;
+        await sleep(300);
         cur = to + 1n;
+        windowsUsed++;
+
+        // We only need a small number to render; stop early if we have any.
+        if (allDecoded.length >= 1) break;
       }
 
-      // If we still don't have a "most recent" (first-ever visit), try a tiny tail sweep near latest
-      if (!mostRecent) {
-        const tailFrom = latest > 2000n ? latest - 2000n : 0n;
-        let tcur = tailFrom;
-        while (tcur <= latest) {
-          const to = tcur + WINDOW > latest ? latest : tcur + WINDOW;
-          const logs = await getWindowLogs(tcur, to);
-          for (const lg of logs) {
-            const bn = Number((lg as any).blockNumber ?? 0);
-            const tx = (lg as any).transactionHash as string;
-            const prize = lg.args?.prizePool as bigint | undefined;
-            const winners = lg.args?.winners as `0x${string}`[] | undefined;
-            if (bn >= (mostRecent?.blockNumber ?? 0) && prize && winners) {
-              mostRecent = { blockNumber: bn, tx, prize: prize.toString(), winners };
-            }
-          }
-          await sleep(200);
-          if (to === latest) break;
-          tcur = to + 1n;
+      console.log('[Winners] total decoded finalize logs:', allDecoded.length);
+
+      // --- Aggregate totals ---
+      let paid = 0n;
+      const map = new Map<string, bigint>();
+
+      for (const item of allDecoded) {
+        paid += item.prize;
+
+        for (let i = 0; i < Math.min(5, item.winners.length); i++) {
+          const addr = item.winners[i];
+          if (!addr || addr === '0x0000000000000000000000000000000000000000') continue;
+          const amt = (item.prize * shares[i]) / 100n;
+          map.set(addr, (map.get(addr) || 0n) + amt);
         }
       }
 
-      // Persist the "most recent" for instant display next time
-      if (mostRecent) {
-        cache.lastFinalize = mostRecent;
-        saveCache(cache);
-      }
+      const arr = Array.from(map.entries())
+        .map(([address, total]) => ({ address: address as `0x${string}`, total }))
+        .sort((a, b) => (a.total > b.total ? -1 : 1))
+        .slice(0, 3);
 
-      // ---- expose state to UI ----
-      setTotalPaid(BigInt(cache.totalPaid || '0'));
-
-      const winnersForUi: Leader[] = (() => {
-        if (!mostRecent) return [];
-        const prize = BigInt(mostRecent.prize);
-        const addrs = mostRecent.winners || [];
-        return addrs.slice(0, 5).map((addr, i) => ({
-          address: addr,
-          total: (prize * SHARES[i]) / 100n,
-        }));
-      })();
-
-      setLastWinners(winnersForUi);
+      setTotalPaid(paid);
+      setLeaders(arr);
     } catch (e) {
       console.error('[Winners] load error', e);
     } finally {
@@ -220,7 +210,6 @@ export default function Winners() {
     <div id="winners" className="card neon-border" style={{ padding: 18 }}>
       <div className="title-xl" style={{ fontSize: 24, marginBottom: 8 }}>Winners</div>
 
-      {/* Total paid out so far (cumulative, persisted) */}
       <div className="muted" style={{ marginBottom: 6 }}>Total paid out so far</div>
       {loading ? (
         <div className="skeleton" style={{ width: 260, height: 40 }} />
@@ -229,22 +218,19 @@ export default function Winners() {
       )}
 
       <div style={{ height: 12 }} />
-      <div className="title-xl" style={{ fontSize: 18, marginBottom: 8 }}>Last Round Winners (all 5)</div>
-
+      <div className="title-xl" style={{ fontSize: 18, marginBottom: 8 }}>Top 3 All-Time</div>
       <div style={{ display:'grid', gap:8 }}>
         {loading ? (
           <>
             <div className="skeleton" style={{ width:'100%', height: 40 }} />
             <div className="skeleton" style={{ width:'100%', height: 40 }} />
             <div className="skeleton" style={{ width:'100%', height: 40 }} />
-            <div className="skeleton" style={{ width:'100%', height: 40 }} />
-            <div className="skeleton" style={{ width:'100%', height: 40 }} />
           </>
-        ) : lastWinners.length === 0 ? (
-          <div className="muted">No finalized round yet—check back soon.</div>
+        ) : leaders.length === 0 ? (
+          <div className="muted">No winners yet—check back after the first finalize.</div>
         ) : (
-          lastWinners.map((l, i) => (
-            <div key={`${l.address}-${i}`} className="row" style={{
+          leaders.map((l, i) => (
+            <div key={l.address} className="row" style={{
               justifyContent:'space-between', alignItems:'center',
               border:'1px solid rgba(43,208,255,.12)', borderRadius:12, padding:'10px 12px'
             }}>
@@ -259,8 +245,7 @@ export default function Winners() {
       </div>
 
       <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>
-        Cumulative total is computed from on-chain <code>RoundFinalized</code> events and cached locally.<br/>
-        Uses ≤10-block windows with backoff to stay within free RPC limits.
+        Based on on-chain <code>RoundFinalized</code> events since deploy. Raw logs decoded locally; windows ≤10 blocks to fit free RPC limits.
       </div>
     </div>
   );
