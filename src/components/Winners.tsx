@@ -123,14 +123,33 @@ export default function Winners() {
 
       console.log('[Winners] total logs found:', allLogs.length);
 
-      // Aggregate winners & totals
+      /* ---------------- Aggregate winners & totals (robust decode) ---------------- */
       let paid = 0n;
       const map = new Map<string, bigint>();
 
       for (const lg of allLogs) {
-        const prize = lg.args?.prizePool as bigint | undefined;
-        const winners = lg.args?.winners as `0x${string}`[] | undefined;
-        if (!prize || !winners) continue;
+        const a: any = (lg as any).args;
+
+        // viem can expose args both by name and by index — read either.
+        const roundId: bigint | undefined = a?.roundId ?? a?.[0];
+        const winners: (`0x${string}` | undefined)[] | undefined = a?.winners ?? a?.[1];
+        const prize: bigint | undefined = a?.prizePool ?? a?.[2];
+
+        // Only skip if truly missing (undefined/null), not if it's 0n or [].
+        if (prize === undefined || winners === undefined) {
+          // console.warn('[Winners] undecodable log', lg);
+          continue;
+        }
+
+        // One-time debug to confirm shape
+        if ((window as any).__winnersDebugPrinted !== true) {
+          console.log('[Winners] sample decoded', {
+            roundId: typeof roundId === 'bigint' ? Number(roundId) : roundId,
+            prize: prize.toString(),
+            winners,
+          });
+          (window as any).__winnersDebugPrinted = true;
+        }
 
         paid += prize;
 
@@ -149,6 +168,7 @@ export default function Winners() {
 
       setTotalPaid(paid);
       setLeaders(arr);
+      /* --------------------------------------------------------------------------- */
     } catch (e) {
       console.error('[Winners] load error', e);
     } finally {
