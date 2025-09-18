@@ -5,10 +5,12 @@ import { base } from 'viem/chains';
 import { RAFFLE_ADDRESS } from '../config/addresses';
 import { formatToken } from '../lib/format';
 
-type Leader = { address: `0x${string}`, total: bigint };
-const shares = [45n, 25n, 15n, 10n, 5n] as const;
+type Row = { prize: bigint; winners: `0x${string}`[]; bn: number };
+type LastWinnerLine = { address: `0x${string}`, total: bigint };
 
-// Dedicated logs RPC (Alchemy URL recommended)
+const SHARES = [45n, 25n, 15n, 10n, 5n] as const;
+
+// Dedicated logs RPC (Alchemy URL recommended via env)
 const LOGS_URL = (import.meta.env.VITE_LOGS_RPC_URL as string) || 'https://mainnet.base.org';
 
 const logsClient = createPublicClient({
@@ -23,15 +25,16 @@ const ROUND_FINALIZED = parseAbiItem(
 
 const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
 const short = (a: string) => (a ? a.slice(0, 6) + '…' + a.slice(-4) : '');
+const ZERO = '0x0000000000000000000000000000000000000000';
 
 export default function Winners() {
   const [loading, setLoading] = React.useState(true);
   const [totalPaid, setTotalPaid] = React.useState<bigint>(0n);
-  const [leaders, setLeaders] = React.useState<Leader[]>([]);
+  const [lastWinners, setLastWinners] = React.useState<LastWinnerLine[]>([]);
 
   async function getWindowRawLogs(from: bigint, to: bigint, retries = 2) {
     try {
-      // no ABI/eventName → raw topics/data; we’ll decode locally
+      // raw logs (no ABI) → we’ll decode locally so we can keep windows tiny
       return await logsClient.getLogs({
         address: RAFFLE_ADDRESS,
         fromBlock: from,
@@ -62,14 +65,13 @@ export default function Winners() {
       });
       if (eventName !== 'RoundFinalized') return undefined;
 
-      // args by name (and fallback by index for safety)
+      // prefer named args; fallback to positional
       const a: any = args;
       const prize: bigint | undefined = a?.prizePool ?? a?.[2];
       const winners: (`0x${string}` | undefined)[] | undefined = a?.winners ?? a?.[1];
-
       if (!prize || !winners) return undefined;
 
-      return { prize, winners };
+      return { prize, winners: winners as `0x${string}`[] };
     } catch {
       return undefined;
     }
@@ -84,119 +86,96 @@ export default function Winners() {
       const hintBlockEnv = (import.meta.env.VITE_HINT_FINALIZE_BLOCK as string) || '';
       const hintBlock = hintBlockEnv ? BigInt(hintBlockEnv) : undefined;
 
+      // start window: max(latest - maxBack, deployBlock)
       let from = latest > maxBack ? (latest - maxBack) : 0n;
       if (deployBlock > from) from = deployBlock;
 
-      // ≤10 blocks inclusive → window size 9 (cur..cur+9)
+      // ≤10 blocks inclusive on Alchemy Free → choose 9 so [cur, cur+9] spans 10 blocks
       const WINDOW = 9n;
 
-      console.log('[BlueCat] RPC_URL in bundle:', LOGS_URL);
-      console.log('[Winners] addr=', RAFFLE_ADDRESS);
-      console.log('[Winners] latest=', Number(latest), 'from=', Number(from), 'hint=', hintBlock ? Number(hintBlock) : 'none');
-
-      const allDecoded: { prize: bigint; winners: `0x${string}`[] }[] = [];
+      const decoded: Row[] = [];
       const seen = new Set<string>();
 
-      // --- 1) Targeted pass around a known finalize block: [hint-4, hint+5] (10 blocks inclusive) ---
+      // --- 1) Target a small band around a known finalize block if provided ---
       if (hintBlock) {
-        const hFrom = hintBlock > 4n ? (hintBlock - 4n) : 0n;
+        const hFrom = hintBlock > 4n ? (hintBlock - 4n) : 0n; // 10 blocks inclusive: [hint-4, hint+5]
         const hTo   = hintBlock + 5n;
-
         try {
           const raws = await getWindowRawLogs(hFrom, hTo);
-          const these = raws
-            .filter((lg: any) => {
-              const key = `${lg.transactionHash}:${lg.logIndex}`;
-              if (seen.has(key)) return false;
-              const dec = tryDecode(lg);
-              if (!dec) return false;
-              seen.add(key);
-              allDecoded.push({ prize: dec.prize, winners: dec.winners as `0x${string}`[] });
-              return true;
-            });
-          console.log(`[Winners] targeted found: ${these.length} in ${Number(hFrom)} → ${Number(hTo)}`);
-        } catch (e: any) {
-          // If Alchemy still complains (unlikely now), split into two sub-windows
-          console.warn('[Winners] targeted window split fallback:', e?.message || e);
-          const leftFrom = hFrom, leftTo = hintBlock;
-          const rightFrom = hintBlock + 1n, rightTo = hTo;
+          for (const lg of raws) {
+            const key = `${lg.transactionHash}:${lg.logIndex}`;
+            if (seen.has(key)) continue;
+            const d = tryDecode(lg);
+            if (!d) continue;
+            seen.add(key);
+            decoded.push({ prize: d.prize, winners: d.winners, bn: Number(lg.blockNumber ?? 0) });
+          }
+        } catch (e) {
+          // split fallback in case provider is picky on off-by-one
           const parts = await Promise.allSettled([
-            getWindowRawLogs(leftFrom, leftTo),
-            getWindowRawLogs(rightFrom, rightTo),
+            getWindowRawLogs(hFrom, hintBlock),
+            getWindowRawLogs(hintBlock + 1n, hTo),
           ]);
           for (const part of parts) {
             if (part.status !== 'fulfilled') continue;
             for (const lg of part.value) {
               const key = `${lg.transactionHash}:${lg.logIndex}`;
               if (seen.has(key)) continue;
-              const dec = tryDecode(lg);
-              if (!dec) continue;
+              const d = tryDecode(lg);
+              if (!d) continue;
               seen.add(key);
-              allDecoded.push({ prize: dec.prize, winners: dec.winners as `0x${string}`[] });
+              decoded.push({ prize: d.prize, winners: d.winners, bn: Number(lg.blockNumber ?? 0) });
             }
           }
-          console.log('[Winners] targeted (split) total added so far:', allDecoded.length);
         }
       }
 
-      // --- 2) Sweep in small windows from `from` to `latest` ---
+      // --- 2) Sweep forward in tiny windows until we find at least one finalize ---
       let cur = from;
       let windowsUsed = 0;
       const MAX_WINDOWS = 600;
 
-      while (cur <= latest && windowsUsed < MAX_WINDOWS) {
+      while (cur <= latest && windowsUsed < MAX_WINDOWS && decoded.length === 0) {
         const to = cur + WINDOW > latest ? latest : cur + WINDOW;
-        let raws: any[] = [];
-        try {
-          raws = await getWindowRawLogs(cur, to);
-        } catch (e: any) {
-          console.warn('[Winners] window error, skipping', { from: Number(cur), to: Number(to) }, e?.message || e);
-        }
 
-        let hits = 0;
-        for (const lg of raws) {
-          const key = `${lg.transactionHash}:${lg.logIndex}`;
-          if (seen.has(key)) continue;
-          const dec = tryDecode(lg);
-          if (!dec) continue;
-          seen.add(key);
-          allDecoded.push({ prize: dec.prize, winners: dec.winners as `0x${string}`[] });
-          hits++;
+        try {
+          const raws = await getWindowRawLogs(cur, to);
+          for (const lg of raws) {
+            const key = `${lg.transactionHash}:${lg.logIndex}`;
+            if (seen.has(key)) continue;
+            const d = tryDecode(lg);
+            if (!d) continue;
+            seen.add(key);
+            decoded.push({ prize: d.prize, winners: d.winners, bn: Number(lg.blockNumber ?? 0) });
+          }
+        } catch (e) {
+          // skip this window on hiccup
         }
-        if (hits) console.log(`[Winners] window hit (${Number(WINDOW)}): ${hits} in ${Number(cur)} → ${Number(to)}`);
 
         await sleep(300);
         cur = to + 1n;
         windowsUsed++;
-
-        // We only need a small number to render; stop early if we have any.
-        if (allDecoded.length >= 1) break;
       }
 
-      console.log('[Winners] total decoded finalize logs:', allDecoded.length);
+      // ---- Build UI state ----
+      // 1) Total paid = sum of prizes we decoded in this scan window
+      const total = decoded.reduce((acc, r) => acc + r.prize, 0n);
+      setTotalPaid(total);
 
-      // --- Aggregate totals ---
-      let paid = 0n;
-      const map = new Map<string, bigint>();
-
-      for (const item of allDecoded) {
-        paid += item.prize;
-
-        for (let i = 0; i < Math.min(5, item.winners.length); i++) {
-          const addr = item.winners[i];
-          if (!addr || addr === '0x0000000000000000000000000000000000000000') continue;
-          const amt = (item.prize * shares[i]) / 100n;
-          map.set(addr, (map.get(addr) || 0n) + amt);
+      // 2) Last round winners = winners from the most recent finalize we saw
+      if (decoded.length === 0) {
+        setLastWinners([]);
+      } else {
+        const recent = decoded.reduce((a, b) => (b.bn >= a.bn ? b : a));
+        const lines: LastWinnerLine[] = [];
+        for (let i = 0; i < 5; i++) {
+          const addr = recent.winners[i];
+          if (!addr || addr === ZERO) continue;
+          const amt = (recent.prize * SHARES[i]) / 100n;
+          lines.push({ address: addr, total: amt });
         }
+        setLastWinners(lines);
       }
-
-      const arr = Array.from(map.entries())
-        .map(([address, total]) => ({ address: address as `0x${string}`, total }))
-        .sort((a, b) => (a.total > b.total ? -1 : 1))
-        .slice(0, 3);
-
-      setTotalPaid(paid);
-      setLeaders(arr);
     } catch (e) {
       console.error('[Winners] load error', e);
     } finally {
@@ -210,6 +189,7 @@ export default function Winners() {
     <div id="winners" className="card neon-border" style={{ padding: 18 }}>
       <div className="title-xl" style={{ fontSize: 24, marginBottom: 8 }}>Winners</div>
 
+      {/* Total paid out so far (from scanned window) */}
       <div className="muted" style={{ marginBottom: 6 }}>Total paid out so far</div>
       {loading ? (
         <div className="skeleton" style={{ width: 260, height: 40 }} />
@@ -218,19 +198,22 @@ export default function Winners() {
       )}
 
       <div style={{ height: 12 }} />
-      <div className="title-xl" style={{ fontSize: 18, marginBottom: 8 }}>Top 3 All-Time</div>
+      <div className="title-xl" style={{ fontSize: 18, marginBottom: 8 }}>Last Round Winners</div>
+
       <div style={{ display:'grid', gap:8 }}>
         {loading ? (
           <>
             <div className="skeleton" style={{ width:'100%', height: 40 }} />
             <div className="skeleton" style={{ width:'100%', height: 40 }} />
             <div className="skeleton" style={{ width:'100%', height: 40 }} />
+            <div className="skeleton" style={{ width:'100%', height: 40 }} />
+            <div className="skeleton" style={{ width:'100%', height: 40 }} />
           </>
-        ) : leaders.length === 0 ? (
-          <div className="muted">No winners yet—check back after the first finalize.</div>
+        ) : lastWinners.length === 0 ? (
+          <div className="muted">No finalized round found in the recent scan window.</div>
         ) : (
-          leaders.map((l, i) => (
-            <div key={l.address} className="row" style={{
+          lastWinners.map((l, i) => (
+            <div key={`${l.address}-${i}`} className="row" style={{
               justifyContent:'space-between', alignItems:'center',
               border:'1px solid rgba(43,208,255,.12)', borderRadius:12, padding:'10px 12px'
             }}>
@@ -245,7 +228,7 @@ export default function Winners() {
       </div>
 
       <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>
-        Based on on-chain <code>RoundFinalized</code> events since deploy. Raw logs decoded locally; windows ≤10 blocks to fit free RPC limits.
+        Based on on-chain <code>RoundFinalized</code> events scanned in ≤10-block windows (Alchemy Free-tier friendly).
       </div>
     </div>
   );
