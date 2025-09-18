@@ -1,5 +1,10 @@
 // src/components/Winners.tsx
 import React from 'react';
+import {
+  createPublicClient,
+  http,
+} from 'viem';
+import { base } from 'viem/chains';
 import { publicClient } from '../lib/eth';
 import { RAFFLE_ABI } from '../abi/BlueCatRaffle';
 import { RAFFLE_ADDRESS } from '../config/addresses';
@@ -7,6 +12,17 @@ import { formatToken } from '../lib/format';
 
 type Leader = { address: `0x${string}`, total: bigint };
 const shares = [45n, 25n, 15n, 10n, 5n] as const;
+
+/** Prefer a dedicated RPC for logs (Alchemy). Fallback to VITE_RPC_URL if not set. */
+const LOGS_RPC =
+  (import.meta.env.VITE_LOGS_RPC_URL as string) ||
+  (import.meta.env.VITE_RPC_URL as string);
+
+/** Force logs over Alchemy (no public fallbacks that can time out) */
+const logsClient = createPublicClient({
+  chain: base,
+  transport: http(LOGS_RPC, { timeout: 10_000 }),
+});
 
 function short(a: string) {
   return a ? a.slice(0, 6) + '…' + a.slice(-4) : '';
@@ -34,51 +50,84 @@ export default function Winners() {
         try { return v ? BigInt(v) : undefined; } catch { return undefined; }
       })();
 
-      // Where to start scanning
+      // Look back from latest (bounded), but never before deploy block if provided.
       const backStart = latest > MAX_BACK ? latest - MAX_BACK : 0n;
-      const fromInit =
-        DEPLOY_BLOCK && DEPLOY_BLOCK < latest ? DEPLOY_BLOCK : backStart;
+      const fromInit = DEPLOY_BLOCK > 0n ? (DEPLOY_BLOCK > backStart ? DEPLOY_BLOCK : backStart) : backStart;
 
       console.log('[Winners] addr=', RAFFLE_ADDRESS);
       console.log('[Winners] latest=', Number(latest), 'from=', Number(fromInit), 'hint=', HINT && Number(HINT));
 
-      const WINDOW = 10n; // Alchemy Free requires <= 10 block range per eth_getLogs
-      const MAX_WINDOWS = 600; // 600 * 10 = 6k blocks hard cap per page load
+      const WINDOW = 10n;       // Alchemy Free limit
+      const MAX_WINDOWS = 600;  // safety cap (600 * 10 = 6k blocks per load)
 
-      // Helper to fetch a single 10-block window
+      const allLogs: any[] = [];
+      const seen = new Set<string>(); // de-dup by txHash:logIndex
+
       async function fetchWindow(from: bigint, to: bigint) {
         if (to < from) return [];
-        const logs = await publicClient.getLogs({
-          address: RAFFLE_ADDRESS,
-          abi: RAFFLE_ABI as any,
-          eventName: 'RoundFinalized',
-          fromBlock: from,
-          toBlock: to,
-        });
-        if (logs.length) {
-          console.log(
-            `[Winners] window hit: ${logs.length} in ${Number(from)} → ${Number(to)}`
-          );
+
+        // 3 tries with small backoff
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            const logs = await logsClient.getLogs({
+              address: RAFFLE_ADDRESS,
+              abi: RAFFLE_ABI as any,
+              eventName: 'RoundFinalized',
+              fromBlock: from,
+              toBlock: to,
+            });
+            if (logs.length) {
+              console.log(`[Winners] window hit: ${logs.length} in ${Number(from)} → ${Number(to)}`);
+            }
+            return logs;
+          } catch (e: any) {
+            const msg = e?.message || e?.details || '';
+            // Adjust if some RPC insists on < 10
+            if (String(msg).includes('10 block range')) {
+              const adjTo = from + 9n;
+              if (adjTo >= from) {
+                try {
+                  const logs = await logsClient.getLogs({
+                    address: RAFFLE_ADDRESS,
+                    abi: RAFFLE_ABI as any,
+                    eventName: 'RoundFinalized',
+                    fromBlock: from,
+                    toBlock: adjTo,
+                  });
+                  if (logs.length) {
+                    console.log(`[Winners] window hit (9): ${logs.length} in ${Number(from)} → ${Number(adjTo)}`);
+                  }
+                  return logs;
+                } catch { /* fall through to retry/backoff */ }
+              }
+            }
+            if (attempt < 2) {
+              await new Promise(r => setTimeout(r, 400 * (attempt + 1)));
+              continue;
+            }
+            throw e;
+          }
         }
-        return logs;
+        return [];
       }
 
-      // 1) Optional targeted window around a known finalize block to guarantee we show *something* fast.
-      const allLogs: any[] = [];
-      const seen = new Set<string>(); // for de-duplication
-
+      // 1) Try a small targeted window around a known finalize block to ensure we show something fast
       if (HINT && HINT >= fromInit && HINT <= latest) {
         const tFrom = HINT > 5n ? HINT - 5n : 0n;
         const tTo = HINT + 5n;
-        const logs = await fetchWindow(tFrom, tTo);
-        if (logs.length) console.log('[Winners] targeted found:', logs.length, 'in', Number(tFrom), '→', Number(tTo));
-        for (const lg of logs) {
-          const k = `${lg.transactionHash}:${lg.logIndex}`;
-          if (!seen.has(k)) { seen.add(k); allLogs.push(lg); }
+        try {
+          const logs = await fetchWindow(tFrom, tTo);
+          if (logs.length) console.log('[Winners] targeted found:', logs.length, 'in', Number(tFrom), '→', Number(tTo));
+          for (const lg of logs) {
+            const k = `${lg.transactionHash}:${lg.logIndex}`;
+            if (!seen.has(k)) { seen.add(k); allLogs.push(lg); }
+          }
+        } catch (e) {
+          console.warn('[Winners] targeted window failed, continuing', e);
         }
       }
 
-      // 2) Rolling windows back→forward
+      // 2) Rolling windows back→forward (from bounded start)
       let windowsUsed = 0;
       let from = fromInit;
       while (from <= latest && windowsUsed < MAX_WINDOWS) {
@@ -93,7 +142,6 @@ export default function Winners() {
             if (!seen.has(k)) { seen.add(k); allLogs.push(lg); }
           }
         } catch (e: any) {
-          // Skip transient errors & keep going
           console.warn('[Winners] window error, skipping', { from: Number(from), to: Number(to) }, e?.message || e);
         }
 
@@ -108,12 +156,11 @@ export default function Winners() {
 
       for (const lg of allLogs) {
         const args: any = lg.args ?? {};
-        // Robust field extraction (named or positional)
+        // Robust extraction: named OR positional
         const prize: bigint | undefined =
           (args.prizePool as bigint) ?? (args[2] as bigint);
         const winners: `0x${string}`[] | undefined =
-          (args.winners as `0x${string}`[]) ??
-          (args[1] as `0x${string}`[]);
+          (args.winners as `0x${string}`[]) ?? (args[1] as `0x${string}`[]);
 
         if (!prize || !winners) {
           console.warn('[Winners] unable to decode event args:', lg);
@@ -124,7 +171,7 @@ export default function Winners() {
 
         for (let i = 0; i < Math.min(5, winners.length); i++) {
           const addr = winners[i];
-          if (!addr) continue; // just in case
+          if (!addr) continue;
           const amt = (prize * shares[i]) / 100n;
           map.set(addr, (map.get(addr) || 0n) + amt);
         }
@@ -185,7 +232,7 @@ export default function Winners() {
       </div>
 
       <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>
-        Based on on-chain <code>RoundFinalized</code> events since deploy. Uses 10-block windows to respect free RPC limits.
+        Based on on-chain <code>RoundFinalized</code> events since deploy. Uses 10-block windows (Alchemy Free compatible).
       </div>
     </div>
   );
