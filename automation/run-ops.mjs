@@ -23,7 +23,6 @@ if (!RPC_URL || !RAFFLE_ADDRESS || !ADMIN_KEY || !MASTER_SECRET) {
 
 // ====== ABIs ======
 const RAFFLE_ABI = [
-  // views
   { type:'function', name:'currentRound', stateMutability:'view', inputs:[], outputs:[
     {type:'uint256', name:'id'},
     {type:'uint256', name:'openAt'},
@@ -34,30 +33,17 @@ const RAFFLE_ABI = [
   ]},
   { type:'function', name:'roundId', stateMutability:'view', inputs:[], outputs:[{type:'uint256'}] },
   { type:'function', name:'rounds', stateMutability:'view', inputs:[{type:'uint256'}], outputs:[
-    {type:'uint256'}, // id
-    {type:'uint256'}, // openAt
-    {type:'uint256'}, // closeAt
-    {type:'uint256'}, // pot
-    {type:'uint256'}, // fee
-    {type:'uint256'}, // prizePool
-    {type:'bytes32'}, // serverSeedHash (commit)
-    {type:'bytes32'}, // randomSeed
-    {type:'bool'},    // closed
-    {type:'bool'},    // drawn
+    {type:'uint256'}, {type:'uint256'}, {type:'uint256'}, {type:'uint256'},
+    {type:'uint256'}, {type:'uint256'}, {type:'bytes32'}, {type:'bytes32'},
+    {type:'bool'}, {type:'bool'},
   ]},
   { type:'function', name:'owner',    stateMutability:'view', inputs:[], outputs:[{type:'address'}] },
   { type:'function', name:'operator', stateMutability:'view', inputs:[], outputs:[{type:'address'}] },
   { type:'function', name:'toshi',    stateMutability:'view', inputs:[], outputs:[{type:'address'}] },
 
-  // writes
   { type:'function', name:'openRound',     stateMutability:'nonpayable', inputs:[{type:'uint256'},{type:'bytes32'}], outputs:[] },
-  { type:'function', name:'closeRound',    stateMutability:'nonpayable', inputs:[{type:'uint256'}],                outputs:[] },
+  { type:'function', name:'closeRound',    stateMutability:'nonpayable', inputs:[{type:'uint256'}], outputs:[] },
   { type:'function', name:'finalizeRound', stateMutability:'nonpayable', inputs:[{type:'uint256'},{type:'bytes32'}], outputs:[] },
-];
-
-const ERC20_ABI = [
-  { type:'function', name:'balanceOf', stateMutability:'view', inputs:[{type:'address'}], outputs:[{type:'uint256'}] },
-  { type:'function', name:'decimals',  stateMutability:'view', inputs:[], outputs:[{type:'uint8'}] },
 ];
 
 // ====== Clients ======
@@ -67,7 +53,7 @@ const walletClient = createWalletClient({ account, chain: base, transport: http(
 
 // ====== Helpers ======
 const TZ = 'America/New_York';
-const CLOSE_HOUR_ET = 22; // 10:00 PM ET
+const CLOSE_HOUR_ET = 22;
 
 function nextCloseAtInET(nowUtcMs = Date.now()) {
   const now = new Date(nowUtcMs);
@@ -111,19 +97,10 @@ async function readRoundTuple(id) {
   };
 }
 
-function fmt(n, dec = 18) {
-  // best-effort human formatting without bignumber libs
-  const s = n.toString().padStart(dec + 1, '0');
-  const head = s.slice(0, -dec) || '0';
-  const tail = s.slice(-dec).replace(/0+$/, '');
-  return tail ? `${head}.${tail}` : head;
-}
-
 async function main() {
   console.log('⏱  Raffle ops start:', new Date().toISOString());
   console.log('Worker address:', account.address);
 
-  // Who controls the contract?
   const [owner, operator] = await Promise.all([
     publicClient.readContract({ address: RAFFLE_ADDRESS, abi: RAFFLE_ABI, functionName: 'owner' }),
     publicClient.readContract({ address: RAFFLE_ADDRESS, abi: RAFFLE_ABI, functionName: 'operator' }),
@@ -131,14 +108,13 @@ async function main() {
   console.log('Owner   :', owner);
   console.log('Operator:', operator);
 
-  // Current round header
   let [id, openAt, closeAt, pot, closed, drawn] = await publicClient.readContract({
     address: RAFFLE_ADDRESS, abi: RAFFLE_ABI, functionName: 'currentRound'
   });
   id = BigInt(id);
   console.log(`currentRound => id=${id} closeAt=${closeAt} closed=${closed} drawn=${drawn}`);
 
-  // ===== Bootstrap: open round #1 if id == 0 =====
+  // Bootstrap
   if (id === 0n) {
     const nextId = 1n;
     const secret   = secretForRound(MASTER_SECRET, nextId);
@@ -154,7 +130,6 @@ async function main() {
     return;
   }
 
-  // Full round details
   let R = await readRoundTuple(id);
   console.log('Round tuple:', {
     id: R.id.toString(), closeAt: R.closeAt, pot: R.pot.toString(),
@@ -162,22 +137,9 @@ async function main() {
     closed: R.closed, drawn: R.drawn, commit: R.commit
   });
 
-  // Token & balance vs pot
-  const toshiAddr = await publicClient.readContract({
-    address: RAFFLE_ADDRESS, abi: RAFFLE_ABI, functionName: 'toshi'
-  });
-  let [tokBal, tokDec] = await Promise.all([
-    publicClient.readContract({ address: toshiAddr, abi: ERC20_ABI, functionName: 'balanceOf', args:[RAFFLE_ADDRESS] }),
-    publicClient.readContract({ address: toshiAddr, abi: ERC20_ABI, functionName: 'decimals' }),
-  ]);
-  tokBal = BigInt(tokBal); tokDec = Number(tokDec);
-  console.log(`TOSHI token: ${toshiAddr}`);
-  console.log(`Contract TOSHI balance: ${tokBal.toString()} (${fmt(tokBal, tokDec)})`);
-  console.log(`Round pot: ${R.pot.toString()} (${fmt(R.pot, tokDec)})`);
-
   const now = Math.floor(Date.now()/1000);
 
-  // A) Close if time passed and not yet closed
+  // A) Close
   if (!R.closed && now >= R.closeAt) {
     console.log('➡️  closeRound', R.id.toString());
     const tx = await walletClient.writeContract({
@@ -188,7 +150,7 @@ async function main() {
     console.log('After close:', { fee: R.fee.toString(), prizePool: R.prizePool.toString(), closed: R.closed });
   }
 
-  // B) Finalize if closed and not drawn
+  // B) Finalize (only if secret matches commit)
   if (R.closed && !R.drawn) {
     const secret = secretForRound(MASTER_SECRET, R.id);
     const calcCommit = commitFromSecret(secret);
@@ -196,16 +158,7 @@ async function main() {
     console.log('Calc   commit:', calcCommit);
 
     if (R.commit.toLowerCase() !== calcCommit.toLowerCase()) {
-      console.error('❌ Secret mismatch. Your current MASTER_SECRET does not match the commit stored on-chain for this round.');
-      console.error('   Action will skip finalize to avoid a reverting tx. Update MASTER_SECRET to the original value for this round.');
-      process.exit(1);
-    }
-
-    // Small sanity check: token balance should cover prize pool + fee
-    const need = R.prizePool + R.fee;
-    if (tokBal < need) {
-      console.error('❌ Contract token balance is less than required payouts (prizePool + fee).');
-      console.error(`   balance=${tokBal.toString()} need=${need.toString()}`);
+      console.error('❌ Secret mismatch. MASTER_SECRET is not the one used when this round was opened.');
       process.exit(1);
     }
 
@@ -218,7 +171,7 @@ async function main() {
     console.log('After finalize:', { drawn: R.drawn, randomSeed: R.random });
   }
 
-  // C) If drawn, open next round
+  // C) Open next
   if (R.drawn) {
     const nextId = (await publicClient.readContract({
       address: RAFFLE_ADDRESS, abi: RAFFLE_ABI, functionName: 'roundId'
