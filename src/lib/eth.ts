@@ -4,13 +4,19 @@ import {
   createWalletClient,
   custom,
   http,
-  fallback,         // ⬅️ added
+  fallback,
   parseUnits,
-  Address,
+  type Address,
 } from 'viem';
 import { base } from 'viem/chains';
 import { ERC20_ABI } from '../abi/erc20';
 import { RPC_URL } from '../config/addresses';
+
+/** One-time debug: make sure the built bundle is using your Alchemy URL. */
+if (typeof window !== 'undefined') {
+  // You should see https://base-mainnet.g.alchemy.com/v2/.... in the console.
+  console.log('[BlueCat] RPC_URL in bundle:', RPC_URL);
+}
 
 /* ---------------- Provider selection ---------------- */
 
@@ -60,16 +66,16 @@ function useWallet(kind: 'metamask' | 'phantom' | 'coinbase') {
 
 /* ---------------- viem clients ---------------- */
 
-// More resilient reads: your RPC plus two public fallbacks.
+// Prefer your Alchemy RPC; keep BlockPi as a quiet backup.
+// Removed https://mainnet.base.org to stop 403 spam in browsers.
 export const publicClient = createPublicClient({
   chain: base,
   transport: fallback(
     [
-      http(RPC_URL),
-      http('https://mainnet.base.org'),
-      http('https://base.blockpi.network/v1/rpc/public'),
+      http(RPC_URL, { batch: true }), // <— Alchemy from VITE_RPC_URL
+      http('https://base.blockpi.network/v1/rpc/public', { batch: true }), // backup
     ],
-    { rank: true } // prefer the first; fail over if it hiccups
+    { rank: true } // prefer first; fail over if it hiccups
   ),
 });
 
@@ -116,7 +122,7 @@ export async function switchToBase(): Promise<void> {
           chainId: '0x2105',
           chainName: 'Base',
           nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-          rpcUrls: [RPC_URL],
+          rpcUrls: [RPC_URL, 'https://base.blockpi.network/v1/rpc/public'],
           blockExplorerUrls: ['https://basescan.org'],
         }],
       });
@@ -165,7 +171,6 @@ export async function getAllowance(owner: Address, spender: Address, token: Addr
 
 /* ------------- Entry points ------------- */
 
-/** Call from wallet picker. Always prompts wallet to choose account again after disconnect. */
 export async function connectWith(kind: 'metamask' | 'phantom' | 'coinbase') {
   useWallet(kind);
   const accs = await requestAccountPermissions(); // prompt selection if wallet supports it
@@ -173,7 +178,6 @@ export async function connectWith(kind: 'metamask' | 'phantom' | 'coinbase') {
   return accs;
 }
 
-/** Strong disconnect: clear caches so next Connect re-prompts. */
 export async function hardDisconnect() {
   const provider = getProvider();
   try { await provider?.disconnect?.(); } catch {}
