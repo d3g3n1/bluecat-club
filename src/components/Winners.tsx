@@ -57,7 +57,7 @@ export default function Winners() {
       console.log('[Winners] addr=', RAFFLE_ADDRESS);
       console.log('[Winners] latest=', Number(latest), 'from=', Number(fromInit), 'hint=', HINT && Number(HINT));
 
-      const WINDOW = 10n;       // Alchemy Free limit
+      const WINDOW = 9n;       // Alchemy Free limit
       const MAX_WINDOWS = 600;  // safety cap (600 * 10 = 6k blocks per load)
 
       const allLogs: any[] = [];
