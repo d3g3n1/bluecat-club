@@ -11,13 +11,13 @@ type Leader = { address: `0x${string}`, total: bigint };
 const ZERO = '0x0000000000000000000000000000000000000000';
 const shares = [45n, 25n, 15n, 10n, 5n] as const;
 
-function short(a: string) { return a ? a.slice(0, 6) + '…' + a.slice(-4) : ''; }
-
-// A dedicated client that ONLY uses your RPC_URL (so Alchemy rules apply consistently)
+// A logs-only client that ALWAYS uses your RPC_URL (Alchemy)
 const logsClient = createPublicClient({
   chain: base,
   transport: http(RPC_URL),
 });
+
+function short(a: string) { return a ? a.slice(0, 6) + '…' + a.slice(-4) : ''; }
 
 export default function Winners() {
   const [loading, setLoading] = React.useState(true);
@@ -27,32 +27,37 @@ export default function Winners() {
   async function load() {
     setLoading(true);
     try {
-      // Env knobs:
-      // - VITE_RAFFLE_DEPLOY_BLOCK: your contract deploy (or a nearby earlier block)
-      // - VITE_MAX_SCAN_BACK_BLOCKS: how far back to scan (default 10k ≈ ~5.5 hours on Base ~2s/block)
-      // - VITE_HINT_FINALIZE_BLOCK: optional exact block # you know contains a RoundFinalized
       const deployEnv = (import.meta.env.VITE_RAFFLE_DEPLOY_BLOCK as string) || '0';
       const deployBlock = /^\d+$/.test(deployEnv) ? BigInt(deployEnv) : 0n;
 
       const maxBackEnv = (import.meta.env.VITE_MAX_SCAN_BACK_BLOCKS as string) || '10000';
       const maxBack = /^\d+$/.test(maxBackEnv) ? BigInt(maxBackEnv) : 10000n;
 
+      // Optional: force-catch the first finalize block you know about
       const hintEnv = (import.meta.env.VITE_HINT_FINALIZE_BLOCK as string) || '';
       const hintBlock = /^\d+$/.test(hintEnv) ? BigInt(hintEnv) : undefined;
 
       const latest = await logsClient.getBlockNumber();
-
-      // Start at max(deploy, latest - maxBack)
       const tailStart = latest > maxBack ? latest - maxBack : 0n;
       let from = deployBlock > tailStart ? deployBlock : tailStart;
 
-      // Alchemy Free: 10-block *inclusive* window ⇒ to - from ≤ 9
-      const WINDOW_DIFF = 9n;
+      // Alchemy Free requires 10-block windows (inclusive)
+      const WINDOW_DIFF = 9n;     // to - from <= 9
       const STEP = WINDOW_DIFF + 1n;
+
+      console.log('[Winners] addr=', RAFFLE_ADDRESS);
+      console.log('[Winners] latest=', Number(latest), 'from=', Number(from), 'hint=', hintBlock ? Number(hintBlock) : '(none)');
+
+      if (!RAFFLE_ADDRESS || RAFFLE_ADDRESS.toLowerCase() === ZERO) {
+        console.warn('[Winners] RAFFLE_ADDRESS missing/zero — cannot scan.');
+        setTotalPaid(0n);
+        setLeaders([]);
+        return;
+      }
 
       const logsAll: any[] = [];
 
-      // 0) Optional "targeted" pass if you know the exact finalize block.
+      // 0) Targeted tiny pass if a hint block is provided
       if (hintBlock && hintBlock >= from && hintBlock <= latest) {
         const hFrom = hintBlock > 2n ? hintBlock - 2n : 0n;
         const hTo = hintBlock + 2n;
@@ -64,15 +69,17 @@ export default function Winners() {
             fromBlock: hFrom,
             toBlock: hTo,
           });
-          if (targeted.length) logsAll.push(...targeted);
+          if (targeted.length) {
+            console.log('[Winners] targeted found:', targeted.length, 'in', Number(hFrom), '→', Number(hTo));
+            logsAll.push(...targeted);
+          }
         } catch (e) {
-          // ignore; we'll sweep in windows next
+          // ignore; sweep below will pick it up
         }
       }
 
-      // 1) Windowed sweep (10-block windows). Keep it bounded so it always finishes fast.
-      //    2000 windows ≈ 20k blocks. With your current 10k tail, it’s plenty.
-      const MAX_WINDOWS = 2000;
+      // 1) Windowed sweep (bounded so it always finishes quickly)
+      const MAX_WINDOWS = 2000; // 2000 * 10 = 20k blocks max
       let windows = 0;
 
       while (from <= latest && windows < MAX_WINDOWS) {
@@ -87,20 +94,22 @@ export default function Winners() {
             fromBlock: from,
             toBlock: to,
           });
-          if (part.length) logsAll.push(...part);
+          if (part.length) {
+            console.log('[Winners] window hit:', part.length, 'in', Number(from), '→', Number(to));
+            logsAll.push(...part);
+          }
         } catch (e: any) {
-          // If rate-limited / minor hiccup, skip this tiny window and move on.
           console.warn('[Winners] window error, skipping', { from: Number(from), to: Number(to) }, e?.message || e);
         }
 
         from = to + 1n;
-        // tiny backoff helps with public RPCs; safe for UI
+        // small delay helps avoid rate-limits
         await new Promise(r => setTimeout(r, 50));
       }
 
-      console.debug('[Winners] Found finalize logs:', logsAll.length);
+      console.log('[Winners] total logs found:', logsAll.length);
 
-      // 2) Aggregate
+      // 2) Aggregate payouts
       let paid = 0n;
       const map = new Map<string, bigint>();
 
@@ -113,7 +122,7 @@ export default function Winners() {
 
         for (let i = 0; i < Math.min(5, winners.length); i++) {
           const addr = winners[i];
-          if (!addr || addr.toLowerCase() === ZERO) continue; // ignore empty slots
+          if (!addr || addr.toLowerCase() === ZERO) continue;
           const amt = (prize * shares[i]) / 100n;
           map.set(addr, (map.get(addr) || 0n) + amt);
         }
