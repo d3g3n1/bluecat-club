@@ -4,7 +4,6 @@ import {
   createWalletClient,
   custom,
   http,
-  fallback,
   parseUnits,
   type Address,
 } from 'viem';
@@ -12,9 +11,8 @@ import { base } from 'viem/chains';
 import { ERC20_ABI } from '../abi/erc20';
 import { RPC_URL } from '../config/addresses';
 
-/** One-time debug: make sure the built bundle is using your Alchemy URL. */
+/** One-time debug: confirm which RPC ended up in the bundle */
 if (typeof window !== 'undefined') {
-  // You should see https://base-mainnet.g.alchemy.com/v2/.... in the console.
   console.log('[BlueCat] RPC_URL in bundle:', RPC_URL);
 }
 
@@ -66,17 +64,14 @@ function useWallet(kind: 'metamask' | 'phantom' | 'coinbase') {
 
 /* ---------------- viem clients ---------------- */
 
-// Prefer your Alchemy RPC; keep BlockPi as a quiet backup.
-// Removed https://mainnet.base.org to stop 403 spam in browsers.
+// IMPORTANT: Only Alchemy, no public fallbacks; disable batching for getLogs stability.
 export const publicClient = createPublicClient({
   chain: base,
-  transport: fallback(
-    [
-      http(RPC_URL, { batch: true }), // <— Alchemy from VITE_RPC_URL
-      http('https://base.blockpi.network/v1/rpc/public', { batch: true }), // backup
-    ],
-    { rank: true } // prefer first; fail over if it hiccups
-  ),
+  transport: http(RPC_URL, {
+    batch: false,     // some RPCs timeout batched getLogs
+    retryCount: 2,
+    timeout: 25_000,  // a little breathing room
+  }),
 });
 
 export async function getWalletClient() {
@@ -103,9 +98,7 @@ export async function requestAccountPermissions(): Promise<Address[]> {
       method: 'wallet_requestPermissions',
       params: [{ eth_accounts: {} }],
     });
-  } catch {
-    // some wallets don’t implement this → ignore
-  }
+  } catch {}
   return requestAccounts();
 }
 
@@ -122,7 +115,7 @@ export async function switchToBase(): Promise<void> {
           chainId: '0x2105',
           chainName: 'Base',
           nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-          rpcUrls: [RPC_URL, 'https://base.blockpi.network/v1/rpc/public'],
+          rpcUrls: [RPC_URL],  // only your Alchemy URL
           blockExplorerUrls: ['https://basescan.org'],
         }],
       });
@@ -173,7 +166,7 @@ export async function getAllowance(owner: Address, spender: Address, token: Addr
 
 export async function connectWith(kind: 'metamask' | 'phantom' | 'coinbase') {
   useWallet(kind);
-  const accs = await requestAccountPermissions(); // prompt selection if wallet supports it
+  const accs = await requestAccountPermissions();
   try { await switchToBase(); } catch {}
   return accs;
 }
@@ -182,10 +175,7 @@ export async function hardDisconnect() {
   const provider = getProvider();
   try { await provider?.disconnect?.(); } catch {}
   try {
-    await provider?.request?.({
-      method: 'wallet_revokePermissions',
-      params: [{ eth_accounts: {} }],
-    });
+    await provider?.request?.({ method: 'wallet_revokePermissions', params: [{ eth_accounts: {} }] });
   } catch {}
   try {
     for (const k of Object.keys(localStorage)) {
@@ -197,7 +187,6 @@ export async function hardDisconnect() {
   selectedProvider = undefined;
 }
 
-/* Optional debug */
 export function debugProviders() {
   const list = detectProviders();
   console.log('Detected providers:', list.map(p => ({
