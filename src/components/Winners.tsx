@@ -14,34 +14,49 @@ export default function Winners(){
   const [totalPaid, setTotalPaid] = React.useState<bigint>(0n);
   const [leaders, setLeaders] = React.useState<Leader[]>([]);
 
+  async function fetchFinalizedLogs(fromBlock: bigint) {
+    return publicClient.getLogs({
+      address: RAFFLE_ADDRESS,
+      abi: RAFFLE_ABI as any,
+      eventName: 'RoundFinalized',
+      fromBlock,
+      toBlock: 'latest'
+    });
+  }
+
   async function load(){
     setLoading(true);
     try{
+      // 1) start block from env (contract creation block)
       const fromEnv = (import.meta.env.VITE_RAFFLE_DEPLOY_BLOCK as string) || '0';
-      const fromBlock = BigInt(fromEnv || '0');
+      let fromBlock = 0n;
+      try { fromBlock = BigInt(fromEnv); } catch { fromBlock = 0n; }
 
-      const logs = await publicClient.getLogs({
-        address: RAFFLE_ADDRESS,
-        abi: RAFFLE_ABI as any,
-        eventName: 'RoundFinalized',
-        fromBlock,
-        toBlock: 'latest'
-      });
+      // 2) get logs (with a small fallback window if none are found)
+      let logs = await fetchFinalizedLogs(fromBlock);
+      if (logs.length === 0 && fromBlock > 0n) {
+        // fallback ~200k blocks earlier, just in case the env var is too high
+        const fallbackFrom = fromBlock > 200000n ? fromBlock - 200000n : 0n;
+        logs = await fetchFinalizedLogs(fallbackFrom);
+      }
+
+      console.log(`[Winners] Loaded ${logs.length} RoundFinalized logs`);
 
       let paid = 0n;
       const map = new Map<string, bigint>();
       const shares = [45n,25n,15n,10n,5n];
 
       for (const lg of logs){
-        const prize = lg.args?.prizePool as bigint;
-        const winners = lg.args?.winners as `0x${string}`[];
+        const prize = lg.args?.prizePool as bigint | undefined;
+        // winners is a fixed array (address[5]); viem returns it as a normal array
+        const winners = lg.args?.winners as readonly `0x${string}`[] | undefined;
         if (!prize || !winners) continue;
 
         paid += prize;
 
         for (let i=0; i<Math.min(5, winners.length); i++){
           const addr = winners[i];
-          if (!addr) continue;
+          if (!addr || addr === '0x0000000000000000000000000000000000000000') continue;
           const amt = (prize * shares[i]) / 100n;
           map.set(addr, (map.get(addr) || 0n) + amt);
         }
@@ -55,7 +70,7 @@ export default function Winners(){
       setTotalPaid(paid);
       setLeaders(arr);
     }catch(e){
-      console.error(e);
+      console.error('[Winners] load error', e);
     }finally{
       setLoading(false);
     }
