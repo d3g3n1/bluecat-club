@@ -1,15 +1,23 @@
 // src/components/Winners.tsx
 import React from 'react';
-import { publicClient } from '../lib/eth';
+import { createPublicClient, http } from 'viem';
+import { base } from 'viem/chains';
+
 import { RAFFLE_ABI } from '../abi/BlueCatRaffle';
-import { RAFFLE_ADDRESS } from '../config/addresses';
+import { RAFFLE_ADDRESS, RPC_URL } from '../config/addresses';
 import { formatToken } from '../lib/format';
 
 type Leader = { address: `0x${string}`, total: bigint };
+const ZERO = '0x0000000000000000000000000000000000000000';
+const shares = [45n, 25n, 15n, 10n, 5n] as const;
 
-function short(a: string) {
-  return a ? a.slice(0, 6) + '…' + a.slice(-4) : '';
-}
+function short(a: string) { return a ? a.slice(0, 6) + '…' + a.slice(-4) : ''; }
+
+// A dedicated client that ONLY uses your RPC_URL (so Alchemy rules apply consistently)
+const logsClient = createPublicClient({
+  chain: base,
+  transport: http(RPC_URL),
+});
 
 export default function Winners() {
   const [loading, setLoading] = React.useState(true);
@@ -19,35 +27,60 @@ export default function Winners() {
   async function load() {
     setLoading(true);
     try {
-      // Where to start scanning:
-      // - Prefer the contract's deploy block from env
-      // - Otherwise, scan the recent tail (defaults to 10k blocks)
+      // Env knobs:
+      // - VITE_RAFFLE_DEPLOY_BLOCK: your contract deploy (or a nearby earlier block)
+      // - VITE_MAX_SCAN_BACK_BLOCKS: how far back to scan (default 10k ≈ ~5.5 hours on Base ~2s/block)
+      // - VITE_HINT_FINALIZE_BLOCK: optional exact block # you know contains a RoundFinalized
       const deployEnv = (import.meta.env.VITE_RAFFLE_DEPLOY_BLOCK as string) || '0';
-      const deployBlock = BigInt(deployEnv || '0');
-      const maxBackEnv = (import.meta.env.VITE_MAX_SCAN_BACK_BLOCKS as string) || '10000';
-      const maxBack = BigInt(maxBackEnv);
+      const deployBlock = /^\d+$/.test(deployEnv) ? BigInt(deployEnv) : 0n;
 
-      const latest = await publicClient.getBlockNumber();
+      const maxBackEnv = (import.meta.env.VITE_MAX_SCAN_BACK_BLOCKS as string) || '10000';
+      const maxBack = /^\d+$/.test(maxBackEnv) ? BigInt(maxBackEnv) : 10000n;
+
+      const hintEnv = (import.meta.env.VITE_HINT_FINALIZE_BLOCK as string) || '';
+      const hintBlock = /^\d+$/.test(hintEnv) ? BigInt(hintEnv) : undefined;
+
+      const latest = await logsClient.getBlockNumber();
+
+      // Start at max(deploy, latest - maxBack)
       const tailStart = latest > maxBack ? latest - maxBack : 0n;
       let from = deployBlock > tailStart ? deployBlock : tailStart;
 
-      // Alchemy Free: "≤ 10-block range" inclusive.
-      // That means: to - from <= 9 (so count = 10).
-      const WINDOW_DIFF = 9n;   // inclusive diff → 10 blocks per request
+      // Alchemy Free: 10-block *inclusive* window ⇒ to - from ≤ 9
+      const WINDOW_DIFF = 9n;
       const STEP = WINDOW_DIFF + 1n;
 
-      // Safety valve so we never loop forever
-      const MAX_WINDOWS = 2000; // 2000 * 10 = 20,000 blocks max per load
-      let windows = 0;
-
       const logsAll: any[] = [];
+
+      // 0) Optional "targeted" pass if you know the exact finalize block.
+      if (hintBlock && hintBlock >= from && hintBlock <= latest) {
+        const hFrom = hintBlock > 2n ? hintBlock - 2n : 0n;
+        const hTo = hintBlock + 2n;
+        try {
+          const targeted = await logsClient.getLogs({
+            address: RAFFLE_ADDRESS,
+            abi: RAFFLE_ABI as any,
+            eventName: 'RoundFinalized',
+            fromBlock: hFrom,
+            toBlock: hTo,
+          });
+          if (targeted.length) logsAll.push(...targeted);
+        } catch (e) {
+          // ignore; we'll sweep in windows next
+        }
+      }
+
+      // 1) Windowed sweep (10-block windows). Keep it bounded so it always finishes fast.
+      //    2000 windows ≈ 20k blocks. With your current 10k tail, it’s plenty.
+      const MAX_WINDOWS = 2000;
+      let windows = 0;
 
       while (from <= latest && windows < MAX_WINDOWS) {
         windows++;
         const to = (from + WINDOW_DIFF > latest) ? latest : (from + WINDOW_DIFF);
 
         try {
-          const part = await publicClient.getLogs({
+          const part = await logsClient.getLogs({
             address: RAFFLE_ADDRESS,
             abi: RAFFLE_ABI as any,
             eventName: 'RoundFinalized',
@@ -56,19 +89,20 @@ export default function Winners() {
           });
           if (part.length) logsAll.push(...part);
         } catch (e: any) {
-          // Network hiccup / rate-limit / provider limitation — skip this window.
+          // If rate-limited / minor hiccup, skip this tiny window and move on.
           console.warn('[Winners] window error, skipping', { from: Number(from), to: Number(to) }, e?.message || e);
         }
 
         from = to + 1n;
-        // Tiny backoff to play nice with public RPCs
-        await new Promise(r => setTimeout(r, 60));
+        // tiny backoff helps with public RPCs; safe for UI
+        await new Promise(r => setTimeout(r, 50));
       }
 
-      // Aggregate winners and totals
+      console.debug('[Winners] Found finalize logs:', logsAll.length);
+
+      // 2) Aggregate
       let paid = 0n;
       const map = new Map<string, bigint>();
-      const shares = [45n, 25n, 15n, 10n, 5n] as const;
 
       for (const lg of logsAll) {
         const prize = lg.args?.prizePool as bigint;
@@ -79,22 +113,21 @@ export default function Winners() {
 
         for (let i = 0; i < Math.min(5, winners.length); i++) {
           const addr = winners[i];
-          if (!addr) continue;
+          if (!addr || addr.toLowerCase() === ZERO) continue; // ignore empty slots
           const amt = (prize * shares[i]) / 100n;
           map.set(addr, (map.get(addr) || 0n) + amt);
         }
       }
 
-      const top3 = Array.from(map.entries())
+      const arr = Array.from(map.entries())
         .map(([address, total]) => ({ address: address as `0x${string}`, total }))
         .sort((a, b) => (a.total > b.total ? -1 : 1))
         .slice(0, 3);
 
       setTotalPaid(paid);
-      setLeaders(top3);
+      setLeaders(arr);
     } catch (e) {
       console.error('[Winners] load error', e);
-      // Show empty state instead of spinner forever
       setTotalPaid(0n);
       setLeaders([]);
     } finally {
@@ -106,11 +139,8 @@ export default function Winners() {
 
   return (
     <div id="winners" className="card neon-border" style={{ padding: 18 }}>
-      <div className="title-xl" style={{ fontSize: 24, marginBottom: 8 }}>
-        Winners
-      </div>
+      <div className="title-xl" style={{ fontSize: 24, marginBottom: 8 }}>Winners</div>
 
-      {/* Total paid out so far */}
       <div className="muted" style={{ marginBottom: 6 }}>Total paid out so far</div>
       {loading ? (
         <div className="skeleton" style={{ width: 260, height: 40 }} />
@@ -118,7 +148,6 @@ export default function Winners() {
         <div className="big-amount">{formatToken(totalPaid)} TOSHI</div>
       )}
 
-      {/* Top 3 all-time */}
       <div style={{ height: 12 }} />
       <div className="title-xl" style={{ fontSize: 18, marginBottom: 8 }}>Top 3 All-Time</div>
       <div style={{ display: 'grid', gap: 8 }}>
@@ -147,7 +176,7 @@ export default function Winners() {
       </div>
 
       <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>
-        Based on on-chain <code>RoundFinalized</code> events since deploy. Uses 10-block windows to respect free RPC limits.
+        Based on <code>RoundFinalized</code> events. Scans in 10-block windows (Alchemy Free-tier compatible).
       </div>
     </div>
   );
