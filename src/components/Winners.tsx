@@ -189,7 +189,8 @@ export default function Winners() {
     <div id="winners" className="card neon-border" style={{ padding: 18 }}>
       <div className="title-xl" style={{ fontSize: 24, marginBottom: 8 }}>Winners</div>
 
-      {/* Big total number (no label) */}
+      {/* Label + big total */}
+      <div className="muted" style={{ marginTop: 2, marginBottom: 4 }}>Total</div>
       {loading ? (
         <div className="skeleton" style={{ width: 260, height: 40, marginBottom: 12 }} />
       ) : (
