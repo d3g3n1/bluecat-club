@@ -29,6 +29,7 @@ const ZERO = '0x0000000000000000000000000000000000000000';
 
 export default function Winners() {
   const [loading, setLoading] = React.useState(true);
+  const [totalPaid, setTotalPaid] = React.useState<bigint>(0n);
   const [lastWinners, setLastWinners] = React.useState<LastWinnerLine[]>([]);
 
   async function getWindowRawLogs(from: bigint, to: bigint, retries = 2) {
@@ -156,7 +157,12 @@ export default function Winners() {
         windowsUsed++;
       }
 
-      // ---- Last round winners = winners from the most recent finalize we saw ----
+      // ---- Build UI state ----
+      // Total paid = sum of prizes we decoded in this scan window
+      const total = decoded.reduce((acc, r) => acc + r.prize, 0n);
+      setTotalPaid(total);
+
+      // Last round winners = winners from the most recent finalize we saw
       if (decoded.length === 0) {
         setLastWinners([]);
       } else {
@@ -172,7 +178,6 @@ export default function Winners() {
       }
     } catch (e) {
       console.error('[Winners] load error', e);
-      setLastWinners([]);
     } finally {
       setLoading(false);
     }
@@ -183,6 +188,13 @@ export default function Winners() {
   return (
     <div id="winners" className="card neon-border" style={{ padding: 18 }}>
       <div className="title-xl" style={{ fontSize: 24, marginBottom: 8 }}>Winners</div>
+
+      {/* Big total number (no label) */}
+      {loading ? (
+        <div className="skeleton" style={{ width: 260, height: 40, marginBottom: 12 }} />
+      ) : (
+        <div className="big-amount" style={{ marginBottom: 12 }}>{formatToken(totalPaid)} TOSHI</div>
+      )}
 
       <div className="title-xl" style={{ fontSize: 18, marginBottom: 8 }}>Last Round Winners</div>
 
