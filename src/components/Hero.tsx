@@ -75,6 +75,8 @@ export default function Hero() {
 
   const shown = useCountUp(pot ?? 0n);
   const remainMs = Math.max(0, closeAt * 1000 - nowMs);
+  const isLive = closeAt > 0 && remainMs > 0; // round open while countdown > 0
+
   const s = Math.floor(remainMs / 1000);
   const h = String(Math.floor(s / 3600)).padStart(2, '0');
   const m = String(Math.floor((s % 3600) / 60)).padStart(2, '0');
@@ -82,6 +84,24 @@ export default function Hero() {
 
   return (
     <>
+      {/* Local styles for the status dot */}
+      <style>{`
+        .statusline { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+        .statusline small { font-size: 12px; letter-spacing: .2px; }
+        .dot {
+          width: 8px; height: 8px; border-radius: 999px; display: inline-block;
+          animation: pulse 1.2s ease-in-out infinite;
+          box-shadow: 0 0 0 0 rgba(0,0,0,0);
+        }
+        .dot--green { background: #18c37e; }
+        .dot--amber { background: #ffb020; }
+        @keyframes pulse {
+          0% { transform: scale(0.9); opacity: .75; }
+          50% { transform: scale(1.25); opacity: 1; }
+          100% { transform: scale(0.9); opacity: .75; }
+        }
+      `}</style>
+
       {/* LEFT: copy + numbers */}
       <div>
         <div className="title-xl">Play. Win. Every Day.</div>
@@ -89,6 +109,15 @@ export default function Hero() {
           Daily <b>$TOSHI</b> lottery on Base. 5 unique winners at 10:00 PM ET.
         </div>
         <div style={{ height: 10 }} />
+
+        {/* Status label just above the big number */}
+        <div className="statusline">
+          <span className={`dot ${isLive ? 'dot--green' : 'dot--amber'}`} aria-hidden />
+          <small className="muted">
+            {isLive ? 'Current Pot' : 'Finalizing previous Round: Draw in progress'}
+          </small>
+        </div>
+
         {pot === null ? (
           <div className="skeleton" style={{ width: 320, height: 44 }} />
         ) : (
